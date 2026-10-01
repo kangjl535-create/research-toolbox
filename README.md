@@ -1,10 +1,12 @@
 # research-toolbox
 
+> **临时兼容分发分支：`cc-switch-compat`**。完整维护源仍为 `main`；本分支仅整项排除 `ppt-master`，不独立维护技能内容。维护源：[`main`](https://github.com/kangjl535-create/research-toolbox/tree/main)；本分支从新仓库的 main 提交 [`2c0fe66e948276e99da0ffbe86f3361e6ae5f6b2`](https://github.com/kangjl535-create/research-toolbox/commit/2c0fe66e948276e99da0ffbe86f3361e6ae5f6b2) 建立。
+
 为 Codex 和 OpenCode 保存与分发固定上游技能副本的中转仓库。默认保留完整上游方法、脚本、参考资料、模板、许可证和输出能力；收录不代表宿主专用适配、效果提升或全面运行验证。
 
 ## 当前范围与命名
 
-保留清单共 **73 项**，当前实际收录 **68 项**；另 5 项因许可问题暂缓，仅保留分类和上游链接。所有已收录技能保留原始调用名称。
+保留清单共 **73 项**，源提交实际收录 **68 项**，本兼容分支分发 **67 项**；整项排除 `ppt-master`，另 5 项因许可问题暂缓，仅保留分类和上游链接。所有已收录技能保留原始调用名称。
 
 技能使用原始调用名称，**不添加 `-curated`**。仓库名保持不变。`researchwrite` 的上游目录名为 `nature-proposal-writer`，两者关系保留；`nature-shared` 是共享依赖，保留关闭隐式调用的原设置。需要 Nature 共享资料的技能应连同 `nature-shared` 安装。
 
@@ -14,7 +16,7 @@
 
 ## 分类清单
 
-以下整合原清单的 **73 项、7 个大方向、31 个细分方向**，分类和顺序不变。73 是保留目录条目数，68 才是本仓库当前可分发技能数。`markdown-mermaid-writing` 来源已按本次决定更正为 K-Dense 的完整技能包；原作者归属与许可保留在来源记录中。
+以下整合原清单的 **73 项、7 个大方向、31 个细分方向**，分类和顺序不变。73 是保留目录条目数，源提交分发 68 项，本兼容分支分发 67 项。`markdown-mermaid-writing` 来源已按本次决定更正为 K-Dense 的完整技能包；原作者归属与许可保留在来源记录中。
 
 用途和重叠说明沿用用户清单，属于功能定位说明，不是本轮执行测试结论。“高重叠”不表示可以完整替代。
 
@@ -253,7 +255,7 @@ Bases、Canvas、CLI 分别是视图格式、画布格式、应用操作接口�
 | Skill 名称 | GitHub 来源仓库 | 用途简介 | 备注：区分与重叠 |
 |---|---|---|---|
 | `pptx` | [anthropics/skills][repo-7] · [说明][src-pptx] | 创建、读取、编辑与重组 PPTX，处理模板、布局、备注和文件结构。 | 常规制作与 ppt-master 高重叠；侧重通用 PPTX/OOXML 操作与包校验。  **暂缓分发：上游许可证禁止再分发**；仅保留上游链接。 |
-| [ppt-master](ppt-master/) | [hugohe3/ppt-master][repo-8] | 制作或重构可编辑演示，复用品牌/样式/布局模板，增强动画与旁白。 | 覆盖普通新建/改稿；差异在模板资产复用、视觉重构、动画和旁白。  已收录；[固定来源](ppt-master/UPSTREAM_SOURCE.md)。 |
+| [ppt-master](https://github.com/kangjl535-create/research-toolbox/tree/main/ppt-master) | [hugohe3/ppt-master][repo-8] | 制作或重构可编辑演示，复用品牌/样式/布局模板，增强动画与旁白。 | 覆盖普通新建/改稿；差异在模板资产复用、视觉重构、动画和旁白。  **本兼容分支整项排除**；main 保留完整技能；[固定来源](https://github.com/kangjl535-create/research-toolbox/blob/main/ppt-master/UPSTREAM_SOURCE.md)。 |
 | `ppt-speech-writer` | [AI272/speaker][repo-1] | 检查现有 PPTX 的文本、结构和画面，写逐页学术讲稿并注入备注区。 | 写 notes 与前两项重叠；特色是现有幻灯片逐视觉元素核对后写讲稿。  **暂缓分发：尚未找到再分发许可证**；仅保留上游链接。 |
 
 ### 5.3 学术会议海报
@@ -342,15 +344,29 @@ Bases、Canvas、CLI 分别是视图格式、画布格式、应用操作接口�
 
 ## 使用、验证与更新
 
-CC Switch 仓库地址：`https://github.com/kangjl535-create/research-toolbox`，分支 `main`。选择所需技能安装；本次只维护 GitHub 分发内容，不操作本机安装、应用开关、模型、角色或权限。
+CC Switch 仓库地址：`https://github.com/kangjl535-create/research-toolbox`，CC Switch v3.20.3 临时选择分支 `cc-switch-compat`。仅选择所需技能安装，避免覆盖同名本地技能；保留现有 `ppt-master` 安装。完整源分支仍为 `main`；本次只维护 GitHub 分发内容，不操作本机安装、应用开关、模型、角色或权限。
 
 本轮检查固定上游文件身份、完整文件范围、元数据、许可证、名称与共享依赖路径，以及发布 ZIP 与目录内容的一致性。没有执行科研任务、模型工作流或外部服务调用，没有安装运行依赖。上游格式与严格校验器的兼容性观察写入对应 `KNOWN_ISSUES.md`；记录不代表修复。仓库未设置 CI，不把本地检查称为 CI 通过。
 
 更新时按各项来源记录比较新的 release/提交与技能目录 tree；仓库发布号变化不证明每项技能都变化。人工审阅依赖、许可和内容差异后再采用，Git 历史、固定 tag/release 和单技能 ZIP 保留版本；不自动跟随上游。
 
+### 临时兼容分支的维护与退出
+
+本分支只解决 CC Switch v3.20.3 的整个 ZIP 条目上限（10,000）：从上述源提交整项排除 `ppt-master/`，其余 67 个一级技能目录及原有嵌套 `SKILL.md` 全部保留。条目减少不保证 60 秒下载/解压超时消失，须实际下载并由用户在 CC Switch 中刷新验证。README 分类表同时充当分发清单；原 73 项分类保留，排除项明确标注。
+
+所有技能内容继续只在 `main` 维护。更新兼容分支时，在独立、干净的非安装目录 checkout 中操作，不覆盖未提交内容：
+
+1. 获取远端 `main` 和 `cc-switch-compat`，确认本次采用的 main 完整提交 SHA，并检查兼容分支相对上次源提交是否仅包含整项排除和分发说明；发现未知改动先审阅，不覆盖。
+2. 从现有远端兼容分支建立本地更新分支，执行 `git merge --no-commit --no-ff <已确认的-main-SHA>` 保留兼容分支历史。若出现已知的删除/修改或 README 冲突，仍以确认的 main 为内容源；对未知冲突停止检查。
+3. 在该专用、原本干净的 checkout 中执行 `git restore --source=<已确认的-main-SHA> --staged --worktree -- .`，然后执行 `git rm -r -- ppt-master`。重新应用本 README 的兼容说明、分发状态、源 SHA 和固定链接，保留本维护段。不要在技能目录内追加兼容补丁。
+4. 比较候选 tree 与该 main：只允许 `ppt-master/` 整项删除及必要 README 调整；其余技能的 Git tree、文件模式和 blob 必须一致。按当前 main 的实际收录数计算保留数，不永久硬编码 67。只检查排除项相关硬依赖，检查本地 ZIP 总条目低于 10,000、大小和内容完整性。
+5. 提交后以普通快进推送更新 `cc-switch-compat`，不强推，不改 main、默认分支、历史 tag/release。实际下载一次兼容分支归档，记录条目、技能数、大小和耗时；失败或缓慢时如实记录，不循环重试或继续裁剪。用户自行刷新并选择安装，不自动同步。
+
+退出条件：正式发布的 CC Switch 已明确包含条目上限修复，且 main 归档的实际下载和 CC Switch 发现验证均通过后，由用户将仓库分支切回 `main`；确认不再使用本兼容渠道后再退役 `cc-switch-compat`。不要仅凭上游 main 的修复或版本号推定验证完成。
+
 ## 许可与暂缓项
 
-仓库维护文档采用 [MIT License](LICENSE)。**各技能依其自身许可证分发，并非全部适用 MIT**。K-Dense、Obsidian、自建技能及 PPT Master 保留其 MIT 声明与组件许可；Nature 技能保留各自许可：`nature-downloader` 为目录内 MIT，另附仓库级 Apache-2.0 声明；其他已收录 Yuan1z0825/nature-skills 技能为 Apache-2.0；`nature-academic-search` 为 MIT；ARS 使用 **CC-BY-NC-4.0（非商业）**，须遵守署名、非商业使用和组件声明。Markdown/Mermaid 包同时保留原作者 Apache-2.0 声明。
+仓库维护文档采用 [MIT License](LICENSE)。**各技能依其自身许可证分发，并非全部适用 MIT**。K-Dense、Obsidian、自建技能保留其 MIT 声明与组件许可；PPT Master 的完整内容与许可仍保留在 main，本兼容分支不包含该目录；Nature 技能保留各自许可：`nature-downloader` 为目录内 MIT，另附仓库级 Apache-2.0 声明；其他已收录 Yuan1z0825/nature-skills 技能为 Apache-2.0；`nature-academic-search` 为 MIT；ARS 使用 **CC-BY-NC-4.0（非商业）**，须遵守署名、非商业使用和组件声明。Markdown/Mermaid 包同时保留原作者 Apache-2.0 声明。
 
 `pdf`、`docx`、`xlsx`、`pptx`：所核查的 Anthropic 上游许可证明确限制复制、改作及再分发，未上传技能原文。`ppt-speech-writer`：所核查的 AI272/speaker v0.8.0 未找到再分发许可证，暂不上传。以上 5 项经用户决定暂缓，不用来源占位文件伪装为已收录技能。
 
