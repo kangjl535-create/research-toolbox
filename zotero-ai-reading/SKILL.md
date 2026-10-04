@@ -5,7 +5,7 @@ description: Read unread papers from a Zotero-managed Paper Library and annotate
 
 # Zotero AI Reading
 
-Release: **0.1.1**. For papers the user has not read: the agent reads the MinerU Markdown, the scripts place its highlights on the PDF, the user pastes one script into Zotero, and the scripts write an Obsidian note identical to what BibNotes's "Update Current Note" would make. Later the user works on the paper with their usual flow (edit in Zotero → "Add Note from Annotations" → Ctrl+P update); the note stays merge-safe.
+Release: **0.2.0**. For papers the user has not read: the agent reads the MinerU Markdown, the scripts place its highlights on the PDF, the user pastes one script into Zotero, and the scripts write an Obsidian note identical to what BibNotes's "Update Current Note" would make. Later the user works on the paper with their usual flow (edit in Zotero → "Add Note from Annotations" → Ctrl+P update); the note stays merge-safe.
 
 ## Requirements
 
@@ -33,3 +33,7 @@ Everything this skill needs is in its own folder, next to this file; a run needs
 7. **Report** from `<run>/report.md`: notes written (as links), annotations placed and dropped, skipped papers, problems of the Markdown conversion you noticed (these belong here, not in the notes), and the user's remaining step: MarkDB-Connect → Sync Tags in Zotero.
 
 When the user takes a paper over, nothing special is needed: AI annotations can be edited, recoloured or deleted like their own; removing the `ai-draft` tag in Zotero removes it from the note at the next update.
+
+## Recording Defects
+
+When real use (not a test) shows a defect in this skill (a script error, a check that let a wrong result through, a result you had to correct or work around, a correction from the user, or instructions that proved wrong), write one note per defect to `%OneDrive%\AI-Config\Skills\feedback\zotero-ai-reading\<YYYY-MM-DD>-<slug>.md`: front matter `skill`, `version`, `date`, `reporter` (agent and model), `status: open`; then what happened, what was expected, evidence (command, input identifiers, a short output excerpt; paths relative to `%OneDrive%`), and the workaround. No credentials or long source text; never edit an existing note. Expected outcomes (documented skips, missing inputs, user decisions) are not defects. If `%OneDrive%\AI-Config\Skills` does not exist, skip this and say so. List written notes in the final report. Here that includes a highlight or frame in the wrong place that `place` did not report, an item dropped although its text is in the PDF, a `verify` or `note` check that missed a problem, or a BibNotes update that changed the note; problems of the Markdown conversion itself stay in the run report.

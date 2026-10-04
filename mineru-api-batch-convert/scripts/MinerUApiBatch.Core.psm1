@@ -1,6 +1,6 @@
 Set-StrictMode -Version Latest
 
-$script:SkillVersion = "2.0.1"
+$script:SkillVersion = "2.1.0"
 $script:MarkerRegex = '<!--\s*mineru-batch-convert\s+(\{.*\})\s*-->'
 $script:MaxFilesPerBatch = 50
 $script:MaxFileBytes = 200MB

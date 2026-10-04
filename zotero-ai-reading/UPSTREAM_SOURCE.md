@@ -3,17 +3,17 @@
 - Maintained source repository: https://github.com/kangjl535-create/custom-agent-skills
 - Original skill name: `zotero-ai-reading`
 - Upstream path: `paper-library-skills/zotero-ai-reading`
-- Selected reference: tag `zotero-ai-reading-v0.1.1`
-- Fixed commit: `e745deb4f1009ba55132453333b04a64d2506c3b`
-- Skill directory Git tree: `b758b10320fdc4ef2254d6d2569bdd12cefd2ebb`
-- Source: https://github.com/kangjl535-create/custom-agent-skills/tree/e745deb4f1009ba55132453333b04a64d2506c3b/paper-library-skills/zotero-ai-reading
-- Source-query timestamp: `2026-10-04T09:30:48+00:00`
-- Acquisition timestamp: `2026-10-04T09:30:48+00:00`
-- Upstream declared skill version: `0.1.1` (SKILL.md "Release")
-- Distribution name: `zotero-ai-reading`; directory: `zotero-ai-reading`; distribution version: `0.1.1`
+- Selected reference: tag `zotero-ai-reading-v0.2.0`
+- Fixed commit: `4c2503ae79e911124c0d76d53219e6ff303fb24b`
+- Skill directory Git tree: `8094a414088d637f1e4fed197e39cd67fa9b8917`
+- Source: https://github.com/kangjl535-create/custom-agent-skills/tree/4c2503ae79e911124c0d76d53219e6ff303fb24b/paper-library-skills/zotero-ai-reading
+- Source-query timestamp: `2026-10-04T10:24:47+00:00`
+- Acquisition timestamp: `2026-10-04T10:24:47+00:00`
+- Upstream declared skill version: `0.2.0`
+- Distribution name: `zotero-ai-reading`; directory: `zotero-ai-reading`; distribution version: `0.2.0`
 - License: MIT. See [LICENSE](LICENSE).
 
-Latest stable upstream release: [zotero-ai-reading v0.1.1](https://github.com/kangjl535-create/custom-agent-skills/releases/tag/zotero-ai-reading-v0.1.1) (2026-10-04).
+Latest stable upstream release: [zotero-ai-reading v0.2.0](https://github.com/kangjl535-create/custom-agent-skills/releases/tag/zotero-ai-reading-v0.2.0) (2026-10-04).
 
 ## Preservation and changes
 
@@ -21,6 +21,6 @@ All 10 upstream skill files are retained byte-for-byte (verified against the ups
 
 ## Validation and update boundary
 
-Upstream: the offline test suite (61 checks) passed in the upstream CI on the release commit; the full suite (93 checks, including the maintainer's Zotero library and Obsidian vault) passed locally. This distribution copy was checked by blob comparison and quick_validate.py only. The repository has no CI validation workflow; local checks are not CI or scientific acceptance.
+Upstream: the offline test suite (61 checks) passed locally and in the upstream CI on the release commit; this release changes only SKILL.md. This distribution copy was checked by blob comparison and quick_validate.py only. The repository has no CI validation workflow; local checks are not CI or scientific acceptance.
 
 Compare the selected upstream skill tree with a future release before adopting changes. No automatic update or CC Switch migration is performed.

@@ -5,7 +5,7 @@ description: Convert authorized local or Zotero-resolved PDFs to same-directory 
 
 # MinerU API Batch Convert
 
-Release: **2.0.1**. Use the bundled scripts with Windows PowerShell 5.1 or PowerShell 7. No local MinerU installation is required.
+Release: **2.1.0**. Use the bundled scripts with Windows PowerShell 5.1 or PowerShell 7. No local MinerU installation is required.
 
 ## Resolve Scope And Permission
 
@@ -63,3 +63,7 @@ Recycling rechecks ownership, scope, signature, assets, source absence, and late
 Return the absolute JSON report path, scan summary (including stale/orphan/rename counts), converted/failed/review-required counts, warnings, and failed or blocked filenames with concise reasons. Include `timing.totalSeconds`; polling/wait is not a measurement of server-only parsing time.
 
 Fatal conversion errors write partial results before throwing; read the report named in the error instead of assuming all files failed or rerunning completed work. Preserve checkpoints for uncertain outcomes. Never expose tokens, signed URLs, or raw API response bodies. No additional library-wide scan is needed after a successful report.
+
+## Recording Defects
+
+When real use (not a test) shows a defect in this skill (a script error, a check that let a wrong result through, a result you had to correct or work around, a correction from the user, or instructions that proved wrong), write one note per defect to `%OneDrive%\AI-Config\Skills\feedback\mineru-api-batch-convert\<YYYY-MM-DD>-<slug>.md`: front matter `skill`, `version`, `date`, `reporter` (agent and model), `status: open`; then what happened, what was expected, evidence (command, input identifiers, a short output excerpt; paths relative to `%OneDrive%`), and the workaround. No credentials or long source text; never edit an existing note. Expected outcomes (documented skips, missing inputs, user decisions) are not defects. If `%OneDrive%\AI-Config\Skills` does not exist, skip this and say so. List written notes in the final report. Here that includes an API, upload or download failure the scripts did not handle, an output reported as converted whose Markdown or images are incomplete, or a wrong stale, orphan or rename decision.
