@@ -2,7 +2,7 @@
 name: handwritten-labnote-to-markdown
 description: Convert handwritten scientific lab-note PDFs or images into an auditable Markdown document using a user-supplied Markdown template. Use when faithful transcription, template mapping, source traceability, and explicit uncertainty handling matter; do not use for summarizing papers or inventing missing experimental details.
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Handwritten Lab Note to Markdown
@@ -59,3 +59,7 @@ Read [references/guided-template.md](references/guided-template.md) for template
 ## Completion standard
 
 Complete only when every source page has been inspected, the final document follows the supplied template, blank fields remain genuinely blank, uncertainty IDs are synchronized, and traceability covers confirmed, uncertain, crossed-out, and unmapped material.
+
+## Recording Defects
+
+When real use (not a test) shows a defect in this skill (a script error, a check that let a wrong result through, a result you had to correct or work around, a correction from the user, or instructions that proved wrong), write one note per defect to `%OneDrive%\AI-Config\Skills\feedback\handwritten-labnote-to-markdown\<YYYY-MM-DD>-<slug>.md`: front matter `skill`, `version`, `date`, `reporter` (agent and model), `status: open`; then what happened, what was expected, evidence (command, input identifiers, a short output excerpt; paths relative to `%OneDrive%`), and the workaround. No credentials or long source text; never edit an existing note. Expected outcomes (documented skips, missing inputs, user decisions) are not defects. If `%OneDrive%\AI-Config\Skills` does not exist, skip this and say so. List written notes in the final report. Here that includes a rule of this skill that led to a wrong transcription or template mapping, or uncertainty and traceability records that missed a problem the user found.
