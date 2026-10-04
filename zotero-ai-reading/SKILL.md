@@ -5,7 +5,7 @@ description: Read unread papers from a Zotero-managed Paper Library and annotate
 
 # Zotero AI Reading
 
-Release: **0.1.0**. For papers the user has not read: the agent reads the MinerU Markdown, the scripts place its highlights on the PDF, the user pastes one script into Zotero, and the scripts write an Obsidian note identical to what BibNotes's "Update Current Note" would make. Later the user works on the paper with their usual flow (edit in Zotero → "Add Note from Annotations" → Ctrl+P update); the note stays merge-safe.
+Release: **0.1.1**. For papers the user has not read: the agent reads the MinerU Markdown, the scripts place its highlights on the PDF, the user pastes one script into Zotero, and the scripts write an Obsidian note identical to what BibNotes's "Update Current Note" would make. Later the user works on the paper with their usual flow (edit in Zotero → "Add Note from Annotations" → Ctrl+P update); the note stays merge-safe.
 
 ## Requirements
 
@@ -15,7 +15,7 @@ Windows; Zotero 9 running with the local API enabled; Python with `pymupdf`, `nu
 
 - **Zotero is changed only by scripts the user pastes** (Tools → Developer → Run JavaScript, "Run as async function"). Never delete permanently; undo moves items to the Zotero trash.
 - **Skip papers that already have annotations** unless the user explicitly asks for an AI note alongside (`--alongside`). Never overwrite an existing Obsidian note; `--replace-ai-draft` only replaces an earlier AI draft and only on request.
-- Batches of up to **10 papers** per pasted script. Missing or stale MinerU Markdown: offer `mineru-api-batch-convert`; do not read the PDF instead. "Untracked" Markdown (made before MinerU markers existed) can be read as it is when it looks complete.
+- Batches of up to **10 papers** per pasted script. Missing or stale Markdown: offer `mineru-api-batch-convert`, or `marker-api-batch-convert` when MinerU is unavailable (same output layout; its `marker-batch-convert` marker is checked against the PDF like MinerU's); do not read the PDF instead. "Untracked" Markdown (no converter marker, e.g. made before the markers existed) can be read as it is when it looks complete.
 - PDFs, MinerU outputs, the user's notes and plugin settings are read, never edited.
 
 ## Workflow

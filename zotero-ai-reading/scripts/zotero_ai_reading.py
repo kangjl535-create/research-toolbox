@@ -102,7 +102,8 @@ def cmd_prepare(a):
         md, md_status = mineru_markdown(pdf)
         row.update(md=str(md) if md else None, md_status=md_status)
         if md is None or md_status.startswith("stale"):
-            row.update(status="skip", reason=f"MinerU Markdown {md_status}: convert with mineru-api-batch-convert first"); continue
+            row.update(status="skip", reason=f"Markdown {md_status}: convert with mineru-api-batch-convert (or marker-api-batch-convert "
+                                             "when MinerU is unavailable) first"); continue
         note = lib.note_path(pdf_rel, ck)
         row["note_path"] = str(note)
         if note.exists():
