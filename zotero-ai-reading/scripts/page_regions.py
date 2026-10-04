@@ -319,9 +319,11 @@ class Pages:
         return None, None
 
     def caption_line(self, word, n):
-        """The caption line "Fig. 7." / "FIG. 7 —" / "TABLE IV." (page, rect), not a sentence citing it. A letter-spaced
-        caption whose "FIG." the text layer splits from the rest is joined with the pieces to its right."""
+        """The caption line "Fig. 7." / "FIG. 7 —" / "TABLE IV." / "Table 1" (page, rect), not a sentence citing it. A
+        letter-spaced caption whose "FIG." the text layer splits from the rest is joined with the pieces to its right.
+        A line inside a prose paragraph ("... in\\nTable 1 are within ...") is returned only when no other line matches."""
         head = rf"^(?:{word})\.?,?\s*{num_re(n)}"
+        fallback = None
         for pattern in (head + r"\s*[.:—–-]", head + r"\b" if not is_roman(n) else head):
             for pi in range(self.doc.page_count):
                 lines = self.stream(pi)[4]
@@ -334,9 +336,21 @@ class Pages:
                             if o.x0 - rect.x1 > 60:
                                 break
                             text, rect = text + " " + " ".join(t for t, _ in ows), rect | o
-                    if re.match(pattern, text):
+                    m = re.match(pattern, text)
+                    if m and not self.in_paragraph(pi, rect, text[m.end():]):
                         return pi, rect
-        return None, None
+                    fallback = fallback or (m and (pi, rect))
+        return fallback or (None, None)
+
+    def in_paragraph(self, pi, rect, rest):
+        """A line of body text, not a caption: the words after the label go on in lower case ("Table 1 are within",
+        "Fig. 7 shows"), or a prose line sits directly above it in its column with no gap."""
+        if re.match(r"[\s,]*[a-z]{2,}\b", rest):
+            return True
+        h = rect.height / 2
+        return any(o.y0 < rect.y0 - h and o.y1 > rect.y0 - h and self.is_prose(ws)
+                   and min(o.x1, rect.x1) - max(o.x0, rect.x0) > 0.5 * min(o.width, rect.width)
+                   for o, ws in self.stream(pi)[4])
 
     def is_prose(self, ws):
         w = [x for t, _ in ws for x in re.findall(r"[a-z]{3,}", t.lower())]  # "non-negative" -> non, negative
@@ -502,8 +516,14 @@ class Pages:
         if len(cands) == 1:
             c1 = max(c1, ref.x1 + 3)  # keep the equation number inside the frame
         anchor_lines = {li for a in (ab, aa) if a and a["page"] == pi for li in a["lines"]}
+        # a line beside an equation number belongs to an equation, even when it reads as prose: the numerator and
+        # denominator of "tan δ = Loss Modulus / Storage Modulus (2)". Other numbers count only standing alone at the
+        # right of the column, not "... of (41) and (42)" ending a text line.
+        eq_nums = [r for lr, ws in self.stream(pi)[4] if len(ws) <= 2 for t, r in ws
+                   if re.fullmatch(NUM_TOKEN, t) and self.same_col(pi, r, ref) and r.x1 > c1 - 25] + ([ref] if len(cands) == 1 else [])
+        beside = lambda lr: any(lr.x1 < r.x0 and min(lr.y1, r.y1) - max(lr.y0, r.y0) > 0.25 * min(lr.height, r.height) for r in eq_nums)
         body = [lr for li, (lr, ws) in enumerate(self.stream(pi)[4])
-                if self.same_col(pi, lr, ref) and (self.is_prose(ws) or li in anchor_lines)]
+                if self.same_col(pi, lr, ref) and not beside(lr) and (self.is_prose(ws) or li in anchor_lines)]
         top = max([lr.y1 for lr in body if lr.y1 <= ref_y], default=40.0)
         bot = min([lr.y0 for lr in body if lr.y0 >= ref_y], default=self.doc[pi].rect.height - 40)
         H, lines = self.doc[pi].rect.height, self.stream(pi)[4]
@@ -546,7 +566,9 @@ class Pages:
         loc, _ = self.locate(words_of(nxt, 6, False)) if nxt else (None, None)
         c0, c1 = self.column(pi, cap, robust=False)  # a table may span both columns, and is at least as wide as its caption
         c0, c1 = min(c0, cap.x0 - 4), max(c1, cap.x1 + 4)
-        bot =self.stream(pi)[4][loc["lines"][0]][0].y0 if loc and loc["page"] == pi else self.doc[pi].rect.height - 40
+        nl = self.stream(pi)[4][loc["lines"][0]][0] if loc and loc["page"] == pi else None
+        # the text after the table, unless it goes on elsewhere (the top of the next column, above the caption)
+        bot = nl.y0 if nl and nl.y0 > cap.y1 and self.same_col(pi, nl, cap) else self.doc[pi].rect.height - 40
         eq = re.match(r"\s*\$\$(.*?)\$\$", self.md[tm.end():], re.S)  # a numbered equation right after the table ends it
         tag = re.search(r"\\tag\s*\{\s*([^}\s)]+)", eq.group(1)) if eq else None
         e = self.equation(tag.group(1).rstrip(".,")) if tag and LABEL.fullmatch(tag.group(1).rstrip(".,")) else None

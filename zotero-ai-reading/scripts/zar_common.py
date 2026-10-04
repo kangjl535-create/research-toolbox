@@ -1,5 +1,5 @@
 """Shared helpers for zotero-ai-reading: Zotero local API (read-only), library/vault paths, the Better BibTeX JSON
-export that BibNotes reads, BibNotes settings, and MinerU Markdown lookup."""
+export that BibNotes reads, BibNotes settings, and MinerU/Marker Markdown lookup."""
 import hashlib, json, pathlib, re, time, urllib.request
 
 API = "http://127.0.0.1:23119/api/users/0/"
@@ -128,14 +128,15 @@ class Library:
 
 
 def mineru_markdown(pdf):
-    """(markdown path or None, status) for the MinerU output next to the PDF."""
+    """(markdown path or None, status) for the converted Markdown next to the PDF: mineru-api-batch-convert or its
+    substitute marker-api-batch-convert, whose first-line markers both carry the PDF's sourceSha256."""
     md = pdf.with_suffix(".md")
     if not md.exists():
         return None, "missing"
     first = md.open(encoding="utf-8").readline()
-    m = re.search(r"<!-- mineru-batch-convert (\{.*\}) -->", first)
+    m = re.search(r"<!-- (?:mineru|marker)-batch-convert (\{.*\}) -->", first)
     if not m:
-        return md, "untracked (no MinerU marker)"
+        return md, "untracked (no converter marker)"
     try:
         marker = json.loads(m.group(1))
     except json.JSONDecodeError:
