@@ -4,7 +4,7 @@ Use semantic versions `MAJOR.MINOR.PATCH`, with prerelease identifiers only whil
 
 ## Choose The Increment
 
-- **MAJOR:** incompatible trigger, input, output, configuration, credential, or behavior contract changes.
+- **MAJOR:** incompatible trigger, input, output, configuration, credential, or behavior contract changes, including renaming the skill (keep "Formerly <old-name>" in its description for at least one major version so the old name still finds it).
 - **MINOR:** backward-compatible capabilities, modes, supported inputs, or meaningful workflow additions.
 - **PATCH:** backward-compatible corrections, safety improvements, documentation that changes execution decisions, or small observable refinements.
 - **No runtime release:** repository renames, category moves, CI-only changes, tests, or project records that do not change the installed skill tree.

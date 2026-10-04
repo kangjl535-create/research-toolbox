@@ -16,7 +16,7 @@ After a successful GitHub release and, when CCSwitch uses a curated distribution
 - commit, tag, and Release URL for each repository updated;
 - ZIP names and SHA-256 values;
 - local and CI validation result;
-- action: add repository and install, or check updates;
+- action: add repository and install, check updates, or (for a renamed skill) install the new name and remove the old installation;
 - expected observable content for an update test.
 
 Use the full repository URL because tested CCSwitch builds may reject `owner/name` shorthand.

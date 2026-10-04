@@ -10,12 +10,16 @@ Confirm the distribution repository from project instructions, the distribution 
 
 Start only after the upstream commit passed CI and its tag and Release exist.
 
-1. Use a separate device-local checkout of the distribution repository. Confirm that the distributed skill matches the upstream commit recorded in its `UPSTREAM_SOURCE.md`, and inspect the repository's own conventions: README, recent commits, tags, and Releases.
+1. Use a separate device-local checkout of the distribution repository. A full checkout of a large distribution repository can fail on Windows path-length limits: clone with `--no-checkout` into a short temporary path and use a cone-mode sparse checkout of the skill directories involved. Confirm that the distributed skill matches the upstream commit recorded in its `UPSTREAM_SOURCE.md`, and inspect the repository's own conventions: README, recent commits, tags, and Releases.
 2. Export the skill tree from the upstream release commit with line-ending conversion disabled, for example `git -c core.autocrlf=false archive`. Copy it byte-for-byte over the distributed runtime files, remove files deleted upstream, and verify every file against the upstream Git blob IDs. Keep distribution additions such as `LICENSE`, `UPSTREAM_SOURCE.md`, and `KNOWN_ISSUES.md`.
 3. Update only the release-specific fields of `UPSTREAM_SOURCE.md`: selected reference, fixed commit, skill directory Git tree (`git rev-parse <commit>:<skill-path>`), query and acquisition timestamps, distribution version, latest stable release link and date, and the file count when it changed.
 4. Run `quick_validate.py`, confirm the staged diff touches only that skill, then commit and push the distribution default branch and the CCSwitch branch when they differ.
 5. Record the update immutably using the distribution repository's convention. For `research-toolbox`, create an annotated incremental batch tag `retained-skills-vX.Y.Z` (PATCH for updated skills, MINOR for added skills) and a matching Release with the single-skill ZIP and `SHA256SUMS.txt`, stating which skills changed. Build that ZIP from the committed bytes, including distribution additions. The repository has no CI; do not describe local checks as CI.
 6. Verify that both branches serve the new files, the tag target, and the Release asset digest. GitHub is the only copy of the distribution repository; do not maintain synchronized local mirrors of it.
+
+## Renamed Skills
+
+A rename is a removal plus an addition: in one commit per branch, delete the old directory, add the new one with the distribution additions, record the former name in `UPSTREAM_SOURCE.md`, and update the README entry. Use a MINOR batch tag and state the removal in its Release. CCSwitch does not migrate installations: the user installs the new name and removes the old installation.
 
 ## Handoff
 

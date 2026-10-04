@@ -4,6 +4,7 @@
 
 - The user requested publication, not only a plan or local implementation.
 - `git` and GitHub CLI are available, and `gh auth status` succeeds for the intended account.
+- Plain `git` authenticates as that same account (`git push --dry-run` to the remote succeeds) and `git config user.name` and `user.email` are set, so commits are attributable. Another account stored in the Git credential manager makes a private repository answer "Repository not found". Device credentials and global Git settings are the user's to change (for example `gh auth setup-git`); do not store tokens or rewrite them yourself.
 - The device-local checkout points to the intended repository and branch.
 - The authoritative source, checkout copy, manifest, release record, and ZIP version agree.
 - Behavior tests, skill validation, release validation, repository validation, and `git diff --check` pass.

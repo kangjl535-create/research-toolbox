@@ -334,7 +334,7 @@ Bases、Canvas、CLI 分别是视图格式、画布格式、应用操作接口�
 | Skill 名称 | GitHub 来源仓库 | 用途简介 | 备注：区分与重叠 |
 |---|---|---|---|
 | [arbor](arbor/) | [K-Dense-AI/scientific-agent-skills][repo-3] | 以目标和评估器驱动假设树分支试验，迭代改进代码、模型或数据管线。 | 运行并比较改进实验；不同于仅生成假设或维护技能发布版本。  已收录；[固定来源](arbor/UPSTREAM_SOURCE.md)。 |
-| [codex-skill-lifecycle](codex-skill-lifecycle/) | [kangjl535-create/custom-agent-skills][repo-4] | 创建、修订、测试、版本化和发布自建技能，并交接 CC Switch 更新。 | 自建；管理 skill 成品生命周期，不替代 Arbor 的目标驱动试验搜索。  已收录；[来源记录](codex-skill-lifecycle/UPSTREAM_SOURCE.md)。 |
+| [homemade-skill-lifecycle](homemade-skill-lifecycle/) | [kangjl535-create/custom-agent-skills][repo-4] | 创建、修订、测试、版本化和发布自建技能，处理日常使用中记录的缺陷，并交接 CC Switch 更新。 | 自建（原名 codex-skill-lifecycle）；管理 skill 成品生命周期，不替代 Arbor 的目标驱动试验搜索。  已收录；[来源记录](homemade-skill-lifecycle/UPSTREAM_SOURCE.md)。 |
 
 ### 7.2 远端计算与服务部署
 
