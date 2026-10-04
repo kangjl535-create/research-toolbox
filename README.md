@@ -4,7 +4,7 @@
 
 ## 当前范围与命名
 
-保留清单共 **74 项**，当前实际收录 **69 项**；另 5 项因许可问题暂缓，仅保留分类和上游链接。所有已收录技能保留原始调用名称。
+保留清单共 **75 项**，当前实际收录 **70 项**；另 5 项因许可问题暂缓，仅保留分类和上游链接。所有已收录技能保留原始调用名称。
 
 技能使用原始调用名称，**不添加 `-curated`**。仓库名保持不变。`researchwrite` 的上游目录名为 `nature-proposal-writer`，两者关系保留；`nature-shared` 是共享依赖，保留关闭隐式调用的原设置。需要 Nature 共享资料的技能应连同 `nature-shared` 安装。
 
@@ -14,7 +14,7 @@
 
 ## 分类清单
 
-以下整合原清单的 73 项和 2026-10-03 新增的自建 `zotero-ai-reading`，共 **74 项、7 个大方向、31 个细分方向**，原有分类和顺序不变。74 是保留目录条目数，69 才是本仓库当前可分发技能数。`markdown-mermaid-writing` 来源已按本次决定更正为 K-Dense 的完整技能包；原作者归属与许可保留在来源记录中。
+以下整合原清单的 73 项、2026-10-03 新增的自建 `zotero-ai-reading` 和 2026-10-04 新增的自建 `marker-api-batch-convert`，共 **75 项、7 个大方向、31 个细分方向**，原有分类和顺序不变。75 是保留目录条目数，70 才是本仓库当前可分发技能数。`markdown-mermaid-writing` 来源已按本次决定更正为 K-Dense 的完整技能包；原作者归属与许可保留在来源记录中。
 
 用途和重叠说明沿用用户清单，属于功能定位说明，不是本轮执行测试结论。“高重叠”不表示可以完整替代。
 
@@ -25,11 +25,11 @@
 | [1. 科研方法、研究设计与评估](#category-1) | 7 | 15 |
 | [2. 文献检索、证据与引用管理](#category-2) | 4 | 11 |
 | [3. 科研写作、投稿与审稿](#category-3) | 4 | 10 |
-| [4. 文档处理、解析与知识管理](#category-4) | 5 | 15 |
+| [4. 文档处理、解析与知识管理](#category-4) | 5 | 16 |
 | [5. 演示、海报与科研可视化](#category-5) | 4 | 10 |
 | [6. 数值计算、数据处理与科学编程](#category-6) | 5 | 10 |
 | [7. Agent、技能维护与云计算基础设施](#category-7) | 2 | 3 |
-| **合计** | **31** | **74** |
+| **合计** | **31** | **75** |
 
 为便于同类比较，`peer-review` 归入“科研写作、投稿与审稿”，`venue-templates` 归入其中的投稿规范分项，`arbor` 归入“Agent、技能维护与云计算基础设施”；分类与条目顺序沿用原清单；分发状态见各行备注。
 
@@ -205,6 +205,7 @@
 | [markitdown](markitdown/) | [K-Dense-AI/scientific-agent-skills][repo-3] · [说明][src-markitdown] | 将 Office、PDF、网页和部分数据格式转换为面向文本分析的 Markdown。 | 异构格式→Markdown；不追求原版式复刻，坐标需求另看 LiteParse。  已收录；[固定来源](markitdown/UPSTREAM_SOURCE.md)。 |
 | [liteparse](liteparse/) | [K-Dense-AI/scientific-agent-skills][repo-3] · [说明][src-liteparse] | 本地抽取带边界框的页面文本/JSON，支持 OCR 与页面 PNG。 | 提供空间坐标和页面图；不直接生成 Markdown，不是普通转换器替身。  已收录；[固定来源](liteparse/UPSTREAM_SOURCE.md)。 |
 | [mineru-api-batch-convert](mineru-api-batch-convert/) | [kangjl535-create/custom-agent-skills][repo-4] | 在 Windows 上将授权本地/Zotero PDF 经 MinerU API 转成 Markdown 与图片。 | 自建；特色是同目录批处理、恢复/审计和既有输出保护，不是纯本地解析。  已收录；[来源记录](mineru-api-batch-convert/UPSTREAM_SOURCE.md)。 |
+| [marker-api-batch-convert](marker-api-batch-convert/) | [kangjl535-create/custom-agent-skills][repo-4] | 在 Windows 上将授权本地/Zotero PDF 经 Datalab Marker API 转成与 MinerU 相同布局的 Markdown 与图片。 | 自建；MinerU 不可用时的替代，输出可直接供 zotero-ai-reading 使用；远端付费服务，不覆盖既有输出。  已收录；[来源记录](marker-api-batch-convert/UPSTREAM_SOURCE.md)。 |
 | [defuddle](defuddle/) | [kepano/obsidian-skills][repo-9] | 将网页正文去除导航和杂项后转换为干净 Markdown。 | 网页→Markdown 与 MarkItDown 重叠；侧重正文清理，不覆盖 Office/PDF 操作。  已收录；[固定来源](defuddle/UPSTREAM_SOURCE.md)。 |
 
 ### 4.3 实验记录与 Markdown 内容编写

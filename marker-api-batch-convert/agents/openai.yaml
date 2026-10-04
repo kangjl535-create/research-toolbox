@@ -1,0 +1,4 @@
+interface:
+  display_name: "Marker API Batch Convert"
+  short_description: "Convert Zotero PDFs with the Datalab Marker API"
+  default_prompt: "Use $marker-api-batch-convert to convert authorized PDFs or paper folders with the Datalab Marker API, skip existing outputs, and report cost, elapsed time and failures."
