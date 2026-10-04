@@ -1,11 +1,11 @@
 ---
-name: codex-skill-lifecycle
-description: Create, revise, test, version, package, and publish homemade Codex skills while keeping a portable local source of truth, immutable release records, GitHub distribution, and a controlled CCSwitch installation or update handoff. Use when developing a new skill, releasing a skill update, reorganizing a multi-skill repository, or diagnosing this release workflow; do not use for merely installing an unrelated third-party skill.
+name: homemade-skill-lifecycle
+description: Create, revise, test, version, package, and publish homemade agent skills (Codex, Claude Code, OpenCode) while keeping a portable local source of truth, defect feedback from daily use, immutable release records, GitHub distribution, and a controlled CCSwitch installation or update handoff. Use when developing a new skill, releasing a skill update, reviewing recorded skill defects, reorganizing a multi-skill repository, or diagnosing this release workflow; do not use for merely installing an unrelated third-party skill. Formerly codex-skill-lifecycle.
 ---
 
-# Codex Skill Lifecycle
+# Homemade Skill Lifecycle
 
-Manage the whole release without confusing its three distinct artifacts:
+Formerly `codex-skill-lifecycle` (renamed in 2.0.0). Manage the whole release without confusing its three distinct artifacts:
 
 - the synchronized local development source is authoritative for editing;
 - the tested GitHub default branch of the repository CCSwitch is configured to use is the update channel; this may be a curated distribution repository rather than the development repository;
@@ -16,8 +16,8 @@ Manage the whole release without confusing its three distinct artifacts:
 Determine the current mode from the request and existing artifacts:
 
 - **Plan:** define purpose, triggers, boundaries, dependencies, permissions, category, repository, and acceptance checks.
-- **Create:** use the available system `skill-creator` to initialize the smallest useful skill, then replace all scaffold placeholders.
-- **Update:** inspect the current source and release record, preserve intended behavior, and choose a semantic version increment.
+- **Create:** use the available system `skill-creator` to initialize the smallest useful skill, then replace all scaffold placeholders and add the standard defect-recording section.
+- **Update:** inspect the current source, release record, and the skill's open defect notes, preserve intended behavior, and choose a semantic version increment.
 - **Validate:** run structural validation, behavior tests, release construction, repository validation, and source comparisons proportional to risk.
 - **Publish:** publish only reviewed files, require CI success, and create an immutable tag, release, ZIP, and digest record.
 - **CCSwitch handoff:** after a successful GitHub release, stop by default and give the user exact manual installation or update instructions.
@@ -38,7 +38,11 @@ For repository organization and the nested-category compatibility gate, read [re
 
 Keep `SKILL.md` concise and route conditional detail to references. Add scripts only for deterministic repeated work, and test every new or changed script. Preserve existing user changes and avoid unrelated refactors.
 
-Select the release increment using [references/versioning.md](references/versioning.md). A directory move or repository rename alone does not change a skill's runtime version. Do not overwrite an existing version, tag, release, or ZIP.
+Select the release increment using [references/versioning.md](references/versioning.md). A directory move or repository rename alone does not change a skill's runtime version; renaming the skill itself does. Do not overwrite an existing version, tag, release, or ZIP.
+
+## Defect Feedback
+
+Homemade skills record defects found in daily use (not tests) as one note per incident under `%OneDrive%\AI-Config\Skills\feedback\<skill-name>\`. [references/feedback.md](references/feedback.md) defines the convention, the standard section every homemade skill carries, and how an update triages and closes notes. This skill follows it too: when a lifecycle run shows a defect in these instructions or scripts, such as a missing precondition, a check that passed a bad state, or a step that needed a workaround, write a note to `feedback\homemade-skill-lifecycle\`.
 
 ## Validate
 

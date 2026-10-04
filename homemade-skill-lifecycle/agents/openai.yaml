@@ -1,0 +1,4 @@
+interface:
+  display_name: "Homemade Skill Lifecycle"
+  short_description: "Build, version, publish, and hand off homemade skills"
+  default_prompt: "Use $homemade-skill-lifecycle to plan and release a homemade skill through local source, GitHub, and CCSwitch handoff."

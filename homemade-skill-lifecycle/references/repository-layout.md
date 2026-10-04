@@ -20,7 +20,7 @@ custom-agent-skills/
 |   |-- example-skill/
 |   `-- example-skill.tests/
 |-- skill-development-tools/
-|   `-- codex-skill-lifecycle/
+|   `-- homemade-skill-lifecycle/
 |-- tools/
 |-- release-records/
 |-- .github/workflows/
