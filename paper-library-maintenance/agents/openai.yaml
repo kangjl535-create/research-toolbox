@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paper Library Maintenance"
+  short_description: "Relocate conversions and notes after papers move"
+  default_prompt: "Use $paper-library-maintenance to put converted Markdown, assets and Obsidian notes back beside papers I moved in Zotero."
