@@ -6,7 +6,7 @@
 
 ## 当前范围与命名
 
-保留清单共 **75 项**，源提交实际收录 **70 项**，本兼容分支分发 **69 项**；整项排除 `ppt-master`，另 5 项因许可问题暂缓，仅保留分类和上游链接。所有已收录技能保留原始调用名称。
+保留清单共 **76 项**，源提交实际收录 **71 项**，本兼容分支分发 **70 项**；整项排除 `ppt-master`，另 5 项因许可问题暂缓，仅保留分类和上游链接。所有已收录技能保留原始调用名称。
 
 技能使用原始调用名称，**不添加 `-curated`**。仓库名保持不变。`researchwrite` 的上游目录名为 `nature-proposal-writer`，两者关系保留；`nature-shared` 是共享依赖，保留关闭隐式调用的原设置。需要 Nature 共享资料的技能应连同 `nature-shared` 安装。
 
@@ -16,7 +16,7 @@
 
 ## 分类清单
 
-以下整合原清单的 73 项、2026-10-03 新增的自建 `zotero-ai-reading` 和 2026-10-04 新增的自建 `marker-api-batch-convert`，共 **75 项、7 个大方向、31 个细分方向**，原有分类和顺序不变。75 是保留目录条目数，源提交分发 70 项，本兼容分支分发 69 项。`markdown-mermaid-writing` 来源已按本次决定更正为 K-Dense 的完整技能包；原作者归属与许可保留在来源记录中。
+以下整合原清单的 73 项、2026-10-03 新增的自建 `zotero-ai-reading`、2026-10-04 新增的自建 `marker-api-batch-convert` 和 2026-10-05 新增的自建 `paper-library-maintenance`，共 **76 项、7 个大方向、31 个细分方向**，原有分类和顺序不变。76 是保留目录条目数，源提交分发 71 项，本兼容分支分发 70 项。`markdown-mermaid-writing` 来源已按本次决定更正为 K-Dense 的完整技能包；原作者归属与许可保留在来源记录中。
 
 用途和重叠说明沿用用户清单，属于功能定位说明，不是本轮执行测试结论。“高重叠”不表示可以完整替代。
 
@@ -27,11 +27,11 @@
 | [1. 科研方法、研究设计与评估](#category-1) | 7 | 15 |
 | [2. 文献检索、证据与引用管理](#category-2) | 4 | 11 |
 | [3. 科研写作、投稿与审稿](#category-3) | 4 | 10 |
-| [4. 文档处理、解析与知识管理](#category-4) | 5 | 16 |
+| [4. 文档处理、解析与知识管理](#category-4) | 5 | 17 |
 | [5. 演示、海报与科研可视化](#category-5) | 4 | 10 |
 | [6. 数值计算、数据处理与科学编程](#category-6) | 5 | 10 |
 | [7. Agent、技能维护与云计算基础设施](#category-7) | 2 | 3 |
-| **合计** | **31** | **75** |
+| **合计** | **31** | **76** |
 
 为便于同类比较，`peer-review` 归入“科研写作、投稿与审稿”，`venue-templates` 归入其中的投稿规范分项，`arbor` 归入“Agent、技能维护与云计算基础设施”；分类与条目顺序沿用原清单；分发状态见各行备注。
 
@@ -236,6 +236,7 @@ Bases、Canvas、CLI 分别是视图格式、画布格式、应用操作接口�
 |---|---|---|---|
 | [open-notebook](open-notebook/) | [K-Dense-AI/scientific-agent-skills][repo-3] | 部署或使用自托管研究资料系统，摄取资料、检索、问答、摘要与播客。 | 独立知识库应用；与解析/笔记工具功能交叉，但包含索引与多源问答系统。  已收录；[固定来源](open-notebook/UPSTREAM_SOURCE.md)。 |
 | [zotero-ai-reading](zotero-ai-reading/) | [kangjl535-create/custom-agent-skills][repo-4] | 为未读 Zotero 文献做 AI 阅读：按用户配色的高亮、公式/图表框和“AI：”批注（经用户粘贴的脚本写入 Zotero），并生成 BibNotes 兼容的 Obsidian 笔记。 | 自建；依赖 MinerU Markdown、Zotero 9 本地 API、Better BibTeX 与 BibNotes Formatter；不直接改动 Zotero，与 pyzotero 的通用文献库操作不同。  已收录；[来源记录](zotero-ai-reading/UPSTREAM_SOURCE.md)。 |
+| [paper-library-maintenance](paper-library-maintenance/) | [kangjl535-create/custom-agent-skills][repo-4] | 在 Zotero 中移动或重命名文献后，把转换 Markdown、图片文件夹和 Obsidian 笔记归位到 PDF 旁或其镜像目录。 | 自建；按哈希或文件名匹配，明确的移动自动执行，其余只报告；不转换 PDF、不写阅读笔记。  已收录；[来源记录](paper-library-maintenance/UPSTREAM_SOURCE.md)。 |
 
 <a id="category-5"></a>
 
