@@ -235,7 +235,7 @@ Bases、Canvas、CLI 分别是视图格式、画布格式、应用操作接口�
 | Skill 名称 | GitHub 来源仓库 | 用途简介 | 备注：区分与重叠 |
 |---|---|---|---|
 | [open-notebook](open-notebook/) | [K-Dense-AI/scientific-agent-skills][repo-3] | 部署或使用自托管研究资料系统，摄取资料、检索、问答、摘要与播客。 | 独立知识库应用；与解析/笔记工具功能交叉，但包含索引与多源问答系统。  已收录；[固定来源](open-notebook/UPSTREAM_SOURCE.md)。 |
-| [zotero-ai-reading](zotero-ai-reading/) | [kangjl535-create/custom-agent-skills][repo-4] | 为未读 Zotero 文献做 AI 阅读：按用户配色的高亮、公式/图表框和“AI：”批注（经用户粘贴的脚本写入 Zotero），并生成 BibNotes 兼容的 Obsidian 笔记。 | 自建；依赖 MinerU Markdown、Zotero 9 本地 API、Better BibTeX 与 BibNotes Formatter；不直接改动 Zotero，与 pyzotero 的通用文献库操作不同。  已收录；[来源记录](zotero-ai-reading/UPSTREAM_SOURCE.md)。 |
+| [zotero-ai-reading](zotero-ai-reading/) | [kangjl535-create/custom-agent-skills][repo-4] | 为未读 Zotero 文献做 AI 阅读：按用户配色的高亮、公式/图表框和“AI：”批注（经 Zotero 10 本地 API 写入 Zotero），并生成 BibNotes 兼容的 Obsidian 笔记。 | 自建；依赖 MinerU Markdown、Zotero 10 本地 API（首次写入需在 Zotero 中授权）、Better BibTeX 与 BibNotes Formatter；只写入本次 AI 批注与 ai-draft 标签，撤销移入回收站，与 pyzotero 的通用文献库操作不同。  已收录；[来源记录](zotero-ai-reading/UPSTREAM_SOURCE.md)。 |
 | [paper-library-maintenance](paper-library-maintenance/) | [kangjl535-create/custom-agent-skills][repo-4] | 在 Zotero 中移动或重命名文献后，把转换 Markdown、图片文件夹和 Obsidian 笔记归位到 PDF 旁或其镜像目录。 | 自建；按哈希或文件名匹配，明确的移动自动执行，其余只报告；不转换 PDF、不写阅读笔记。  已收录；[来源记录](paper-library-maintenance/UPSTREAM_SOURCE.md)。 |
 
 <a id="category-5"></a>

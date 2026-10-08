@@ -1,6 +1,6 @@
 # Set-up the scripts rely on, and why
 
-Read when `prepare` reports a set-up problem, when a step fails, or before changing the scripts. Findings come from the user's 2026-10-02 tests (records under `project-development/records/ai-annotation-tests/2026-10-02/`).
+Read when `prepare` reports a set-up problem, when a step fails, or before changing the scripts. Findings come from the user's 2026-10-02 tests (archived in `%OneDrive%\AI-Config\Skills\records\paper-library-reorganization\2026-10-04\legacy\project-development\records\ai-annotation-tests\2026-10-02\`) and the 2026-10-08 Zotero 10 tests.
 
 ## BibNotes Formatter (Obsidian plugin `bibnotes`)
 
@@ -25,9 +25,24 @@ Runs the installed `main.js` in Node with the few Obsidian classes it touches st
 
 ## Zotero
 
-- Zotero 9's local API (`http://127.0.0.1:23119/api/users/0/`) is read-only; `items/<pdf>/children` omits annotations unless `?itemType=annotation` is added. Python `urllib` works; PowerShell `Invoke-RestMethod` does not.
-- Writes happen only in pasted scripts using Zotero's own functions: `Zotero.Annotations.saveFromJSON` (keys are pre-generated, so verify and undo know them), `item.addTag`, and `Zotero.EditorInstance.createNoteFromAnnotations(annotations, {noSave: true})`, the same call as "Add Note from Annotations" without saving a note. A saved extra annotation note would make BibNotes place the user's later annotations out of order.
-- The unsaved note embeds pictures as `data:` URIs, but BibNotes recognises a picture only by `data-attachment-key` and copies `<storage>/<key>/image.png`. `note` therefore converts each data URI into `<run>/<citekey>/storage/<annotation key>/image.png`. When the user later makes their own annotation note, picture keys change but BibNotes still matches the line by its second half (the annotation link), so no picture is duplicated.
+Zotero 10.0.6, tested 2026-10-08 (records under `%OneDrive%\AI-Config\Skills\records\zotero-ai-reading\`).
+
+- Local API `http://127.0.0.1:23119/api/users/0/`. Reads need no key; `items/<pdf>/children` omits annotations unless `?itemType=annotation` is added. Python `urllib` works; PowerShell `Invoke-RestMethod` does not.
+- Writes (`ZoteroWriter` in `zar_common.py`) need the `Zotero-Server-ID` header (sent back from any response; a missing one gives 428, another instance's 412) and a key from `POST /api/local/authorize`, which shows Zotero's "Local API Authorization" dialog and waits for the user. "Always Allow" gives a key Zotero keeps in `<profile>/localAPIKeys.json` until Settings → Advanced → "Clear Write Authorizations"; the skill keeps its copy in `%LOCALAPPDATA%\AI-Config\zotero-ai-reading\local-api-key.json` with the server ID. "Allow" gives a key consumed by the first write (one dialog per request). On 401 or 412 the writer asks once more. A dialog answered after the client stopped waiting still stores a key nobody received; it does no harm and goes with "Clear Write Authorizations".
+- `write` sends `POST <library>/items`, at most 50 objects per request: each annotation with its pre-generated key and `version: 0` (so it must not exist yet; verify and undo know the keys), `itemType: annotation`, `parentItem` = the PDF, `annotationType/Comment/Color/PageLabel/SortIndex`, `annotationPosition` as a JSON string, `annotationText` only for highlights, tag `AI`; and the item with its local `version` and its full tag list as read (tag types kept) plus `ai-draft`. Objects are applied one by one with no rollback, so every check runs before the first request and `undo-plan.json` is written before it.
+- `DELETE` erases permanently (`eraseTx`). `undo` therefore POSTs `deleted: 1` (the Zotero trash) and the item's tags without `ai-draft`, each with its current version.
+- Item JSON `version` is a local version, unrelated to sync versions. Zotero plugins can change an item while the user has the paper open (e.g. a tag rule on closing the tab, a metadata linter), which `verify` reports as changed fields.
+
+### The annotation note
+
+There is no API for "Add Note from Annotations". `note_html.py` rebuilds what `Zotero.EditorInstance.createNoteFromAnnotations(annotations, {noSave: true})` returns (Zotero 10 `editorInstance.js`): the default templates `<h1>{{title}}<br/>({{date}})</h1>`, `<p>{{highlight}} {{citation}} {{comment}}</p>`, `<p>{{citation}} {{comment}}</p>` and `<p>{{image}}<br/>{{citation}} {{comment}}</p>`; en-US strings (“…”, "and", "et al.", "p."/"pp."); `data-annotation` and `data-citation` as `encodeURIComponent(JSON.stringify(...))`; item data = the local API's `?format=csljson` with `id` set to the item URI `http://zotero.org/users/<library id>/items/<key>`; annotations in `getAnnotations()` order (sort index, ties in creation order) without ink; image size attributes `round(width pt × 96/72 × 1.25)`. A saved extra annotation note would make BibNotes place the user's later annotations out of order, so none is saved.
+- Frame pictures: Zotero renders image annotations at 4 px per point (floor of the size). `render_frame` does the same with PyMuPDF; pictures differ from Zotero's only by rendering (median grey difference 3/255) and in 9 of 392 frames by 1 px.
+- The note HTML embeds pictures as `data:` URIs, as Zotero's unsaved note does; but BibNotes recognises a picture only by `data-attachment-key` and copies `<storage>/<key>/image.png`. `note` therefore converts each data URI into `<run>/<citekey>/storage/<annotation key>/image.png`. When the user later makes their own annotation note, picture keys change but BibNotes still matches the line by its second half (the annotation link), so no picture is duplicated.
+- Checked 2026-10-08 against 160 notes Zotero made in earlier runs (`zotero-ai-reading.tests/compare_note_html.py`, read-only): every annotation block still in Zotero (1,250) identical apart from the picture bytes, in the same order; item data and wrapper identical; the one old note where Zotero had failed to render frames ("[Image not available]") now gets them. Rerun it after a Zotero update that may change the note format, before trusting new notes.
+- Custom note templates (`extensions.zotero.annotations.noteTemplates.*` in prefs.js) or a non-English `intl.locale.requested` would make the rebuilt note differ from the user's own; `note` stops on them.
+
+### Geometry
+
 - Rectangles are PDF user space (bottom-left origin): PyMuPDF rectangle × inverse page transformation. `annotationSortIndex` is `page(5)|offset(6)|top(5)`; the offset only orders annotations within a page.
 - Scanned PDFs: Zotero accepts highlight rectangles anywhere, so scans get normal highlights placed from Windows OCR word boxes (`Windows.Media.Ocr`, en-US; local, about 2 s for 8 pages).
 
@@ -49,4 +64,9 @@ Runs the installed `main.js` in Node with the few Obsidian classes it touches st
 | report: "the first Ctrl+P update adds BibNotes's own file:/// 'open pdf' line" | the PDF's Zotero title is short (e.g. "Full Text PDF"), so the merge cannot recognise the zotero:// line; one extra line on the first update, then stable |
 | an update puts a `tags:`/`folder:` line under "Files and Links" | the note was made when Zotero had no DOI; the new `DOI:` line half-matches the Url line, so later changed YAML lines are inserted there (6 book-section notes on 2026-10-02). Delete the stray lines once; tell the user rather than editing their notes |
 | `note` rejects with "re-update not clean" | a simulated update would insert other lines: open `note-rejected.md` in the paper's run folder and compare with a fresh render before changing anything |
-| undo needed | the user pastes `undo-ai-annotations.js`; then move the written note and its pictures out of the vault (do not delete) |
+| `write` waits and no dialog shows | the dialog may be behind other windows; the command waits up to 10 minutes. If it timed out, click Deny on the dialog still open and run `write` again |
+| `write`: 403 "Local API is not enabled" | Zotero → Settings → Advanced → "Allow other applications on this computer to communicate with Zotero" |
+| `write` refuses: "already written" | each run writes once. To redo a paper: `undo`, then a new run directory |
+| `verify`: item fields changed | something changed the item after `write`, often a plugin while the user had the paper open; compare with `before.json` and tell the user |
+| `note` stops: custom templates or language | restore Zotero's default annotation note templates / English interface, or adapt `note_html.py` and rerun `compare_note_html.py` |
+| undo needed | `undo --run-dir <run>` (moves to the trash); then move the written note and its pictures out of the vault (do not delete) |
