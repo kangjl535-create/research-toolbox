@@ -4,10 +4,11 @@ Steps (each reads and writes files in one run directory):
   prepare        select papers, check them, run OCR for scans                 -> batch.json
   (agent)        write <citekey>/reading.json for each ready paper (see references/reading.md)
   place          validate readings, place highlights/regions on the PDF pages  -> <citekey>/payload.json, previews
-  zotero-script  write the import and undo scripts the user pastes into Zotero -> import-ai-annotations.js, undo-ai-annotations.js
-  verify         compare Zotero (read-only local API) with what was sent
-  note           make, write and check the Obsidian notes                     -> report.md
-Zotero is only read here; all Zotero changes happen in the pasted scripts.
+  write          write the AI annotations and the item tag ai-draft to Zotero  -> zotero-write-result.json, undo-plan.json
+  verify         compare Zotero (read-only) with what was sent
+  note           make the annotation note HTML, write and check the Obsidian notes -> report.md
+  undo           (on request) move this run's AI annotations to the Zotero trash, remove the ai-draft tags it added
+Only write and undo change Zotero, through the Zotero 10 local API (POST only: trashing is `deleted: 1`, never DELETE).
 """
 import argparse, base64, datetime, difflib, hashlib, json, pathlib, re, secrets, shutil, subprocess, sys, tempfile, unicodedata, urllib.parse
 
@@ -15,7 +16,10 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import yaml
 import pymupdf, PIL.Image, PIL.ImageDraw
-from zar_common import Library, api, api_all, zotero_available, mineru_markdown, COLORS, FIELDS, KEY_CHARS
+from zar_common import (Library, api, api_all, api_status, zotero_available, mineru_markdown, ZoteroWriter, WriteError,
+                        zotero_prefs, note_format_problem,
+                        COLORS, FIELDS, KEY_CHARS)
+import note_html as nh
 import text_locator as tl
 from page_regions import Pages, render_for_ocr, LABEL
 
@@ -319,136 +323,159 @@ def coverage_line(rd, payload, n_pages):
     return line
 
 
-# ---------------------------------------------------------------- zotero-script
-IMPORT_JS = r"""// zotero-ai-reading import (__STAMP__). Paste into Zotero: Tools > Developer > Run JavaScript, tick
-// "Run as async function", click Run. Creates AI annotations (tag "AI") and the item tag "ai-draft" for the papers
-// below; never edits or deletes existing items. "Add Note from Annotations" is built WITHOUT saving a note; its HTML
-// is written to the run folder, together with this script's result. Checks every paper before changing anything.
-const RUN_DIR = __RUN_DIR__;
-const ALONGSIDE = __ALONGSIDE__;
-const ITEMS = __ITEMS__;
-const lib = Zotero.Libraries.userLibraryID;
-const get = (k) => Zotero.Items.getByLibraryAndKeyAsync(lib, k);
-const sep = RUN_DIR.includes("\\") ? "\\" : "/";
-const writeText = (p, s) => typeof IOUtils !== "undefined" ? IOUtils.writeUTF8(p, s) : Zotero.File.putContentsAsync(p, s);
-for (const it of ITEMS) {
-  const item = await get(it.item), att = await get(it.pdf);
-  if (!item || item.getField("title") !== it.title) return {status: "abort", reason: `${it.citekey}: item/title mismatch`};
-  if (!att || att.parentID !== item.id || !att.isPDFAttachment()) return {status: "abort", reason: `${it.citekey}: PDF attachment mismatch`};
-  if (!ALONGSIDE && att.getAnnotations().length) return {status: "abort", reason: `${it.citekey}: the PDF already has annotations`};
-  if (att.getAnnotations().some(a => a.hasTag("AI"))) return {status: "abort", reason: `${it.citekey}: AI annotations already exist`};
-  for (const a of it.annotations) if (await get(a.key)) return {status: "abort", reason: `${it.citekey}: key ${a.key} already in use`};
-}
-const result = {status: "created", items: []};
-for (const it of ITEMS) {
-  const item = await get(it.item), att = await get(it.pdf);
-  const created = [];
-  for (const a of it.annotations) {
-    const ann = await Zotero.Annotations.saveFromJSON(att, Object.assign({authorName: "", isExternal: false, tags: [{name: "AI"}]}, a));
-    created.push(ann.key);
-  }
-  const tagAdded = !item.hasTag("ai-draft");
-  if (tagAdded) { item.addTag("ai-draft"); await item.saveTx(); }
-  const anns = att.getAnnotations().filter(x => x.annotationType != "ink");
-  const note = await Zotero.EditorInstance.createNoteFromAnnotations(anns, {parentID: item.id, noSave: true});
-  const out = RUN_DIR + sep + it.citekey + sep + "annotation-note.html";
-  let writeError = null;
-  try { await writeText(out, note.getNote()); } catch (e) { writeError = String(e); }
-  result.items.push({citekey: it.citekey, created, tagAdded, noteHtml: writeError ? null : out, writeError});
-}
-try { await writeText(RUN_DIR + sep + "zotero-import-result.json", JSON.stringify(result, null, 1)); }
-catch (e) { result.resultFileError = String(e); }
-return result;
-"""
-
-UNDO_JS = r"""// zotero-ai-reading UNDO (__STAMP__). Paste into Zotero: Tools > Developer > Run JavaScript, tick
-// "Run as async function", click Run. Moves the annotations created by the matching import to the Zotero trash
-// (restorable there) and removes the item tag "ai-draft" where that import added it. Nothing else is touched.
-const ITEMS = __ITEMS__;
-const lib = Zotero.Libraries.userLibraryID;
-const get = (k) => Zotero.Items.getByLibraryAndKeyAsync(lib, k);
-const report = [];
-for (const it of ITEMS) {
-  const att = await get(it.pdf), item = await get(it.item);
-  const trashed = [];
-  for (const k of it.keys) {
-    const a = await get(k);
-    if (a && a.parentID === att.id && a.hasTag("AI") && !a.deleted) { a.deleted = true; await a.saveTx(); trashed.push(k); }
-  }
-  let tagRemoved = false;
-  if (!it.hadDraftTag && item.hasTag("ai-draft")) { item.removeTag("ai-draft"); await item.saveTx(); tagRemoved = true; }
-  report.push({citekey: it.citekey, trashed, tagRemoved});
-}
-return {status: "moved to trash", report};
-"""
-
-
-def build_scripts(items, undo, run, alongside):
-    """(import script, undo script) for Zotero's Run JavaScript; one annotation per line keeps them pasteable."""
-    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    items_js = "[\n" + ",\n".join(json.dumps(i, ensure_ascii=False) for i in items) + "\n]"
-    js = (IMPORT_JS.replace("__STAMP__", stamp).replace("__RUN_DIR__", json.dumps(str(run)))
-          .replace("__ALONGSIDE__", "true" if alongside else "false").replace("__ITEMS__", items_js))
-    undo_js = UNDO_JS.replace("__STAMP__", stamp).replace("__ITEMS__", json.dumps(undo, ensure_ascii=False, indent=1))
-    return js, undo_js
-
-
-def cmd_zotero_script(a):
-    run = pathlib.Path(a.run_dir).resolve()
-    batch = load(run / "batch.json")
-    items, undo = [], []
-    stale = [row["citekey"] for row in batch["items"] if row["status"] == "ready" and (run / row["citekey"] / "payload.json").exists()
-             and load(run / row["citekey"] / "placement.json").get("inputs") != place_inputs(run / row["citekey"] / "reading.json", row)]
+# ---------------------------------------------------------------- write / undo
+def placed_rows(run, batch):
+    """Ready rows with a payload; stops on a payload older than its reading.json or a key used by two papers."""
+    rows = [r for r in batch["items"] if r["status"] == "ready" and (run / r["citekey"] / "payload.json").exists()]
+    stale = [r["citekey"] for r in rows
+             if load(run / r["citekey"] / "placement.json").get("inputs") != place_inputs(run / r["citekey"] / "reading.json", r)]
     if stale:
         die(f"reading.json changed after the last successful place for {stale}: run place again and fix what it reports")
     owner = {}
-    for row in batch["items"]:  # parallel place runs could draw the same key; a batch place gives the duplicates new keys
-        pp = run / row["citekey"] / "payload.json"
-        for p in (load(pp) if row["status"] == "ready" and pp.exists() else []):
+    for r in rows:  # parallel place runs could draw the same key; a batch place gives the duplicates new keys
+        for p in load(run / r["citekey"] / "payload.json"):
             if p["key"] in owner:
-                die(f"annotation key {p['key']} appears twice ({owner[p['key']]}, {row['citekey']}): run place --run-dir <run> "
+                die(f"annotation key {p['key']} appears twice ({owner[p['key']]}, {r['citekey']}): run place --run-dir <run> "
                     "once for the whole batch, which places such papers again with new keys")
-            owner[p["key"]] = row["citekey"]
-    for row in batch["items"]:
-        pp = run / row["citekey"] / "payload.json"
-        if row["status"] != "ready" or not pp.exists():
-            continue
-        payload = [{k: v for k, v in p.items() if not k.startswith("_")} for p in load(pp)]
-        item = api(f"items/{row['item_key']}")["data"]
-        kids = [c["data"] for c in api_all(f"items/{row['item_key']}/children")]
-        save(run / row["citekey"] / "before.json", {"item": item, "children": kids})
-        had = any(t["tag"] == DRAFT_TAG for t in item.get("tags", []))
-        items.append({"citekey": row["citekey"], "item": row["item_key"], "pdf": row["pdf_key"], "title": item["title"],
-                      "annotations": payload})
-        undo.append({"citekey": row["citekey"], "item": row["item_key"], "pdf": row["pdf_key"],
-                     "keys": [p["key"] for p in payload], "hadDraftTag": had})
-    if not items:
+            owner[p["key"]] = r["citekey"]
+    return rows
+
+
+def annotation_entry(p, pdf_key):
+    """Local API JSON of one new AI annotation (pre-generated key, version 0 = must not exist yet)."""
+    e = {"key": p["key"], "version": 0, "itemType": "annotation", "parentItem": pdf_key, "annotationType": p["type"],
+         "annotationComment": p["comment"], "annotationColor": p["color"], "annotationPageLabel": p["pageLabel"],
+         "annotationSortIndex": p["sortIndex"], "annotationPosition": json.dumps(p["position"], separators=(",", ":")),
+         "tags": [{"tag": AI_TAG}]}
+    if p["type"] == "highlight":
+        e["annotationText"] = p["text"]
+    return e
+
+
+def cmd_write(a, writer=None):
+    run = pathlib.Path(a.run_dir).resolve()
+    batch = load(run / "batch.json")
+    rows = placed_rows(run, batch)
+    if not rows:
         die("nothing placed yet (run place first)")
-    if len(items) > MAX_BATCH:
-        die(f"{len(items)} papers; keep one pasted script to {MAX_BATCH}")
-    js, undo_js = build_scripts(items, undo, run, batch.get("alongside"))
-    (run / "import-ai-annotations.js").write_text(js, encoding="utf-8")
-    (run / "undo-ai-annotations.js").write_text(undo_js, encoding="utf-8")
-    print(f"import script for {len(items)} papers ({sum(len(i['annotations']) for i in items)} annotations): {run / 'import-ai-annotations.js'}")
-    print(f"undo script: {run / 'undo-ai-annotations.js'}")
+    if len(rows) > MAX_BATCH:
+        die(f"{len(rows)} papers; write at most {MAX_BATCH} per run")
+    if (run / "zotero-write-result.json").exists():
+        die("this run has already written to Zotero (zotero-write-result.json); verify it, or undo it and use a new run directory for another write")
+    plan, undo = [], []
+    for row in rows:  # every check before any change
+        ck = row["citekey"]
+        payload = [{k: v for k, v in p.items() if not k.startswith("_")} for p in load(run / ck / "payload.json")]
+        item, att = api(f"items/{row['item_key']}")["data"], api(f"items/{row['pdf_key']}")["data"]
+        if item["title"] != row["title"]:
+            die(f"{ck}: the Zotero title differs from the one prepare saw ({item['title'][:60]!r}): run prepare again")
+        if att.get("parentItem") != row["item_key"] or att.get("contentType") != "application/pdf":
+            die(f"{ck}: {row['pdf_key']} is no longer this item's PDF attachment")
+        live = [x["data"] for x in api_all(f"items/{row['pdf_key']}/children?itemType=annotation") if not x["data"].get("deleted")]
+        if live and not batch.get("alongside"):
+            die(f"{ck}: the PDF has annotations now ({len(live)}); use --alongside only on request")
+        if any(t["tag"] == AI_TAG for x in live for t in x.get("tags", [])):
+            die(f"{ck}: AI annotations already exist on this PDF")
+        used = [p["key"] for p in payload if api_status(f"items/{p['key']}") != 404]
+        if used:
+            die(f"{ck}: annotation keys already in use in Zotero: {used}")
+        kids = [c["data"] for c in api_all(f"items/{row['item_key']}/children")]
+        save(run / ck / "before.json", {"item": item, "children": kids})
+        had = any(t["tag"] == DRAFT_TAG for t in item.get("tags", []))
+        plan.append((ck, row, payload, item, had))
+        undo.append({"citekey": ck, "item": row["item_key"], "pdf": row["pdf_key"], "keys": [p["key"] for p in payload], "hadDraftTag": had})
+    entries, owner = [], []
+    for ck, row, payload, item, had in plan:
+        for p in payload:
+            entries.append(annotation_entry(p, row["pdf_key"])); owner.append((ck, p["key"]))
+        if not had:  # the item's own tags are sent back as read (with their types), plus ai-draft
+            entries.append({"key": row["item_key"], "version": item["version"], "tags": item.get("tags", []) + [{"tag": DRAFT_TAG}]})
+            owner.append((ck, None))
+    save(run / "undo-plan.json", undo)  # before the change: undo works even if the write is interrupted
+    writer = writer or ZoteroWriter()
+    try:
+        outcome = writer.post_items(entries)
+    except WriteError as e:
+        die(str(e))
+    result = {"written": datetime.datetime.now().isoformat(timespec="seconds"), "items": []}
+    for ck, row, payload, item, had in plan:
+        mine = [(k, o) for (c, k), o in zip(owner, outcome) if c == ck]
+        created = [k for k, o in mine if k and o[0] == "ok"]
+        failed = [{"key": k or row["item_key"], **o[1]} for k, o in mine if o[0] == "failed"]
+        tag_added = (not had) and any(k is None and o[0] == "ok" for k, o in mine)
+        result["items"].append({"citekey": ck, "created": created, "tagAdded": tag_added, "failed": failed})
+        print(f"{ck}: {len(created)}/{len(payload)} annotations written, ai-draft tag {'added' if tag_added else 'already there' if had else 'NOT added'}")
+        for f in failed:
+            print(f"   - FAILED {f['key']}: {f['code']} {f['message']}")
+    save(run / "zotero-write-result.json", result)
+    if any(i["failed"] for i in result["items"]):
+        sys.exit(1)
+
+
+def cmd_undo(a, writer=None):
+    """Move this run's AI annotations to the Zotero trash and remove the ai-draft tags it added. Nothing else."""
+    run = pathlib.Path(a.run_dir).resolve()
+    up = run / "undo-plan.json"
+    if not up.exists():
+        die("undo-plan.json not found: this run has not written to Zotero")
+    plan = load(up)
+    entries, owner = [], []
+    for it in plan:
+        for k in it["keys"]:
+            if api_status(f"items/{k}?includeTrashed=1") != 200:
+                continue  # never written
+            d = api(f"items/{k}?includeTrashed=1")["data"]
+            if d.get("parentItem") != it["pdf"] or AI_TAG not in [t["tag"] for t in d.get("tags", [])]:
+                print(f"{it['citekey']}: {k} is not this run's AI annotation any more, left alone"); continue
+            if not d.get("deleted"):
+                entries.append({"key": k, "version": d["version"], "deleted": 1}); owner.append(it["citekey"])
+        item = api(f"items/{it['item']}")["data"]
+        tags = item.get("tags", [])
+        if not it["hadDraftTag"] and any(t["tag"] == DRAFT_TAG for t in tags):
+            entries.append({"key": it["item"], "version": item["version"], "tags": [t for t in tags if t["tag"] != DRAFT_TAG]})
+            owner.append(it["citekey"])
+    if entries:
+        writer = writer or ZoteroWriter()
+        try:
+            outcome = writer.post_items(entries)
+        except WriteError as e:
+            die(str(e))
+        for c, e, o in zip(owner, entries, outcome):
+            if o[0] == "failed":
+                print(f"{c}: FAILED {e['key']}: {o[1]['code']} {o[1]['message']}")
+    batch = load(run / "batch.json") if (run / "batch.json").exists() else {"items": []}
+    for it in plan:
+        left = [k for k in it["keys"] if api_status(f"items/{k}?includeTrashed=1") == 200
+                and not api(f"items/{k}?includeTrashed=1")["data"].get("deleted")]
+        still = any(t["tag"] == DRAFT_TAG for t in api(f"items/{it['item']}")["data"].get("tags", []))
+        print(f"{it['citekey']}: {len(it['keys']) - len(left)}/{len(it['keys'])} AI annotations in the Zotero trash (restorable there)"
+              + (f", NOT trashed: {left}" if left else "") + ("" if it["hadDraftTag"] else f", ai-draft tag {'still on the item' if still else 'removed'}"))
+        note = next((r.get("note_written") for r in batch["items"] if r["citekey"] == it["citekey"] and r.get("note_written")), None)
+        if note and pathlib.Path(note).exists():
+            print(f"   the note {note} and its pictures stay in the vault: move them out (do not delete) if they should go")
 
 
 # ---------------------------------------------------------------- verify
 def cmd_verify(a):
     run = pathlib.Path(a.run_dir)
     batch = load(run / "batch.json")
-    rp = run / "zotero-import-result.json"
+    rp = run / "zotero-write-result.json"
     if not rp.exists():
-        die("zotero-import-result.json not found: has the import script been run in Zotero?")
+        die("zotero-write-result.json not found: run write first")
     res = {r["citekey"]: r for r in load(rp)["items"]}
     ok_all = True
     for row in batch["items"]:
         ck = row["citekey"]
         if ck not in res:
+            if row["status"] == "ready" and (run / ck / "payload.json").exists():
+                print(f"{ck}: PROBLEMS (placed but not in the write result)")
+                ok_all = False
             continue
         sent = {p["key"]: p for p in load(run / ck / "payload.json")}
         live = {x["data"]["key"]: x["data"] for x in api_all(f"items/{row['pdf_key']}/children?itemType=annotation") if not x["data"].get("deleted")}
-        problems = []
+        problems = [f"write failed for {f['key']}: {f['code']} {f['message']}" for f in res[ck].get("failed", [])]
+        if set(res[ck].get("created", [])) != set(sent):
+            problems.append(f"write result lists {len(res[ck].get('created', []))} of {len(sent)} annotations as written")
         for k, p in sent.items():
             z = live.get(k)
             if not z:
@@ -470,8 +497,6 @@ def cmd_verify(a):
         kids_now = {c["data"]["key"] for c in api_all(f"items/{row['item_key']}/children") if not c["data"].get("deleted")}
         if kids_now != kids_before:
             problems.append(f"child items changed: {sorted(kids_now ^ kids_before)}")
-        if not res[ck].get("noteHtml"):
-            problems.append(f"annotation-note HTML not written: {res[ck].get('writeError')}")
         row["verified"] = not problems
         ok_all &= not problems
         print(f"{ck}: {'OK' if not problems else 'PROBLEMS'} ({len(sent)} annotations)")
@@ -483,6 +508,48 @@ def cmd_verify(a):
 
 
 # ---------------------------------------------------------------- note
+def annotation_note(run, row):
+    """annotation-note.html as Zotero's "Add Note from Annotations" without saving (createNoteFromAnnotations,
+    noSave) would make it now, from the PDF's live annotations; frame pictures rendered from the PDF.
+    Returns (html, annotations in note order)."""
+    item = api(f"items/{row['item_key']}")
+    lib_id = item.get("library", {}).get("id")
+    if not lib_id:
+        raise RuntimeError("Zotero reports no user library ID (signed out of Zotero sync?): annotation links need it")
+    csl = api(f"items/{row['item_key']}?format=csljson")
+    csl = (csl.get("items") or [csl])[0] if isinstance(csl, dict) else csl[0]
+    parent_uri = f"http://zotero.org/users/{lib_id}/items/{row['item_key']}"
+    written = [p["key"] for p in load(run / row["citekey"] / "payload.json")]
+    anns = nh.note_order([nh.annotation_json(x["data"]) for x in api_all(f"items/{row['pdf_key']}/children?itemType=annotation")
+                          if not x["data"].get("deleted")], created=written)
+    doc = pymupdf.open(row["pdf"])
+    for x in anns:
+        if x["type"] == "image":
+            x["image"] = nh.data_uri(nh.render_frame(doc, x))
+    html = nh.build_note(anns, f"http://zotero.org/users/{lib_id}/items/{row['pdf_key']}", parent_uri, {**csl, "id": parent_uri})
+    return html, anns
+
+
+def note_problems(text, anns, written, pdf_key):
+    """Every AI annotation linked in the rendered note, every frame with its picture, no broken placeholders."""
+    probs = []
+    keys = {x["id"] for x in anns}
+    gone = [k for k in written if k not in keys]
+    if gone:
+        probs.append(f"AI annotations no longer in Zotero: {gone}")
+    unlinked = [k for k in written if k in keys and not re.search(rf"items/{pdf_key}\?page=\d+&annotation={k}\b", text)]
+    if unlinked:
+        probs.append(f"annotations without their link in the note: {unlinked}")
+    images = re.findall(r"!\[\[([^\]]+\.png)\]\]", text)
+    no_pic = [x["id"] for x in anns if x["type"] == "image" and not any(x["id"] in i for i in images)]
+    if no_pic:
+        probs.append(f"frames without their picture in the note: {no_pic}")
+    for bad in ("[Image not available]", "page=undefined", "annotation=)"):
+        if bad in text:
+            probs.append(f"note contains {bad!r}")
+    return probs
+
+
 def convert_note_html(html, storage):
     """The unsaved note embeds images as data URIs; BibNotes needs data-attachment-key and <storage>/<key>/image.png."""
     def rep(m):
@@ -574,6 +641,9 @@ def cmd_note(a):
     batch = load(run / "batch.json")
     lib = library_of(batch)
     img_dir = lib.settings.get("imagesPath", "Linked files")
+    fmt = note_format_problem(zotero_prefs())
+    if fmt:
+        die(f"{fmt}: the annotation note would not match Zotero's own; restore the default or update note_html.py first")
     lines = [f"# zotero-ai-reading run {run.name}", ""]
     for row in batch["items"]:
         ck = row["citekey"]
@@ -590,13 +660,18 @@ def cmd_note(a):
             lines.append(f"- {ck}: Better BibTeX export does not show the ai-draft tag yet; rerun `note` in a minute"); continue
         reading = load(run / ck / "reading.json")
         storage = run / ck / "storage"
-        conv = convert_note_html((run / ck / "annotation-note.html").read_text(encoding="utf-8"), storage)
+        try:
+            note_html, anns = annotation_note(run, row)
+        except RuntimeError as e:
+            lines.append(f"- {ck}: NOT written ({e})"); continue
+        (run / ck / "annotation-note.html").write_text(note_html, encoding="utf-8")
+        conv = convert_note_html(note_html, storage)
         (run / ck / "annotation-note-for-bibnotes.html").write_text(conv, encoding="utf-8")
         with tempfile.TemporaryDirectory() as td:
             text, notices = headless(lib, pathlib.Path(td) / "render", ck, storage, run / ck / "annotation-note-for-bibnotes.html")
             bad_notices = [n for n in notices if not n.startswith("Imported")]
             text = fill_note(text, reading, row["pdf_key"], a.agent)
-            problems = []
+            problems = note_problems(text, anns, [p["key"] for p in load(run / ck / "payload.json")], row["pdf_key"])
             if yaml_problem(text):
                 problems.append(yaml_problem(text))
             if any(re.search(r"[<>]", m) for m in re.findall(r"<mark[^>]*>(.*?)</mark>", text)):
@@ -658,7 +733,7 @@ def main():
     s.add_argument("--limit", type=int, default=MAX_BATCH)
     s.add_argument("--alongside", action="store_true", help="also annotate papers that already have annotations (only on request)")
     s.add_argument("--replace-ai-draft", action="store_true", help="allow replacing an earlier AI-draft note")
-    for name in ("zotero-script", "verify"):
+    for name in ("write", "verify", "undo"):
         sub.add_parser(name).add_argument("--run-dir", required=True)
     s = sub.add_parser("place")
     s.add_argument("--run-dir", required=True)
@@ -674,8 +749,8 @@ def main():
     a = p.parse_args()
     if getattr(a, "limit", MAX_BATCH) > MAX_BATCH:
         die(f"batches are limited to {MAX_BATCH} papers")
-    {"prepare": cmd_prepare, "pagemap": cmd_pagemap, "place": cmd_place, "zotero-script": cmd_zotero_script,
-     "verify": cmd_verify, "note": cmd_note}[a.cmd](a)
+    {"prepare": cmd_prepare, "pagemap": cmd_pagemap, "place": cmd_place, "write": cmd_write,
+     "verify": cmd_verify, "note": cmd_note, "undo": cmd_undo}[a.cmd](a)
 
 
 if __name__ == "__main__":
