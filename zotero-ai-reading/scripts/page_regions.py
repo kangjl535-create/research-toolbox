@@ -3,25 +3,29 @@
 Words come either from Windows OCR (`ocr_windows.ps1` on 300-dpi renders; scanned PDFs) or from the PDF text
 layer (text PDFs). On scans, quotes are matched like text_locator.py and snapped to the OCR wording.
 Figures: the MinerU figure crops (all panels of the figure) are template-matched on the page image, on the
-caption's page first. Numbered equations: the ink between the nearest body-text lines, located from the equation
-number or, when OCR missed it, from the Markdown text around the equation. Tables: from the caption to the text
-after the table. Labels are as printed: 7, "2.5", "A1", "12a"; Roman numerals for tables.
+caption's page first, then widened to the ink touching them. Numbered equations: the ink between the nearest body-text
+lines, located from the equation number or, when OCR missed it, from the Markdown text around the equation. Tables:
+from the caption to the last rule (or the text after the table), with their footnotes. Labels are as printed: 7,
+"2.5", "A1", "12a"; Roman numerals for tables.
 Rectangles are PyMuPDF page points (top-left origin); text_locator.to_zotero converts them for Zotero.
 """
-import difflib, json, pathlib, re, urllib.parse
+import json, pathlib, re, urllib.parse
 import numpy as np, pymupdf, PIL.Image
 from skimage.feature import match_template
 from skimage.transform import rescale
 
-from text_locator import norm_char, norm_text, clean_needle, compact, to_zotero, sort_index, WATERMARK
+from text_locator import (norm_char, norm_text, clean_needle, compact, align, best_span, strip_math, char_box, drawn_notes,
+                          is_note, to_zotero, sort_index, WATERMARK)
 
 OCR_DPI = 300
 S = 72 / OCR_DPI  # OCR pixel -> page point
 LABEL = re.compile(r"[A-Z]?\d{1,3}(?:\.\d{1,3})?[a-z]?'?|[IVXLC]{1,6}")  # 7, 2.5, A1, 12a, 55', IV
-NUM_TOKEN = r"[(�ð][A-Z]?\d{1,3}(?:\.\d{1,3})?[a-z]?'?[)�Þ]"  # any printed equation number, "(4)" also read as �4� or ð4Þ
+LEADER = r"[.…·]*"  # dot leaders set in one word with the number: "……….(8)" (de Kretser 2003)
+NUM_TOKEN = LEADER + r"[(�ð][A-Z]?\d{1,3}(?:\.\d{1,3})?[a-z]?'?[)�Þ]"  # any printed equation number, "(4)" also read as �4� or ð4Þ
 MATH_WORDS = {"cos", "sin", "tan", "cot", "sec", "csc", "exp", "log", "erf", "erfc", "sinh", "cosh", "tanh", "coth",
               "sech", "csch", "max", "min", "lim", "sup", "inf", "arg", "det", "div", "grad", "curl"}
 GAP_PT = 13  # a blank band this tall ends an equation frame (inside the 90 equations of the rc tests: at most 11.5 pt)
+NOTE_MARKS = "*∗⁎†‡§¶"  # table footnote marks
 
 
 def is_roman(n):
@@ -41,9 +45,33 @@ def md_label(n):
 
 
 def words_of(t, k, tail):
-    t = re.sub(r"\$[^$]*\$", " ", t)
+    t = strip_math(t)
     w = [x for x in re.sub(r"\s+", " ", t).strip().split(" ") if x]
     return " ".join(w[-k:] if tail else w[:k])
+
+
+def join_pieces(lines):
+    """A text layer that gives every word its own line (Shapiro 2011: justified text set word by word) hides the
+    columns and the body-text lines: when most lines are a single word (68-75 % of Shapiro's lines, against 10 % on a
+    page of formulas set glyph by glyph and 40 % on an old scan's OCR layer, whose tables are read piece by piece) and
+    hardly any has several, join the pieces on one baseline that are at most a line height apart (a column gap or an
+    equation number is wider)."""
+    words = sum(len(ws) == 1 and len(re.findall(r"[A-Za-z]", ws[0][0])) >= 3 for ws in lines)
+    if words < 0.5 * len(lines) or sum(len(ws) > 1 for ws in lines) > 0.1 * len(lines):
+        return lines
+    box = lambda ws: pymupdf.Rect(ws[0][1]).include_rect(ws[-1][1])
+    rows = []
+    for ws in sorted(lines, key=lambda ws: ws[0][1].x0):  # left to right: each piece goes on after the one before it
+        r = box(ws)
+        for row in rows:
+            q = box(row[-1])
+            h = min(r.height, q.height)
+            if min(r.y1, q.y1) - max(r.y0, q.y0) > 0.6 * h and 0 <= r.x0 - q.x1 <= min(h, 20):
+                row.append(ws)
+                break
+        else:
+            rows.append([ws])
+    return [[w for ws in row for w in ws] for row in sorted(rows, key=lambda row: box(row[0]).y0)]
 
 
 def render_for_ocr(pdf_path, out_dir):
@@ -55,13 +83,43 @@ def render_for_ocr(pdf_path, out_dir):
     return out_dir
 
 
+def ocr_alignment(doc, ocr_json):
+    """Share of the OCR words (4+ letters or digits) that the PDF's own text layer has at the same place. A publisher's
+    invisible OCR layer can sit beside the printed words (Bradbury 1981: 16 % of words in place, the rest half a line
+    higher and several words off; Kirkham 1959: 98 %), and highlights placed from it then cover other text."""
+    ocr = {p["page"] - 1: p for p in json.load(open(ocr_json, encoding="utf-8"))}
+    key = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
+    hit = n = 0
+    for pi in range(doc.page_count):
+        layer = {}
+        for b in doc[pi].get_text("rawdict", flags=pymupdf.TEXT_MEDIABOX_CLIP)["blocks"]:
+            for l in b.get("lines", []):
+                word, box = "", None
+                for ch in [c for s in l["spans"] for c in s["chars"]] + [{"c": " "}]:
+                    if ch["c"].isspace():
+                        if len(key(word)) >= 4:
+                            layer.setdefault(key(word), []).append(box)
+                        word, box = "", None
+                    else:
+                        word, box = word + ch["c"], (pymupdf.Rect(ch["bbox"]) if box is None else box | pymupdf.Rect(ch["bbox"]))
+        for l in ocr.get(pi, {}).get("lines", []):
+            for w in l["words"]:
+                if len(key(w["text"])) < 4 or key(w["text"]) not in layer:
+                    continue
+                o = pymupdf.Rect(w["x"] * S, w["y"] * S, (w["x"] + w["w"]) * S, (w["y"] + w["h"]) * S)
+                c = min(layer[key(w["text"])], key=lambda r: abs(r.x0 + r.x1 - o.x0 - o.x1) + abs(r.y0 + r.y1 - o.y0 - o.y1))
+                n += 1
+                hit += abs(c.x0 + c.x1 - o.x0 - o.x1) / 2 < max(3, 0.25 * o.width) and abs(c.y0 + c.y1 - o.y0 - o.y1) / 2 < 0.35 * o.height
+    return hit / n if n else 0.0
+
+
 class Pages:
     def __init__(self, pdf_path, md_path, ocr_json=None):
         self.doc = pymupdf.open(pdf_path)
         self.md_path = pathlib.Path(md_path)
         self.md = self.md_path.read_text(encoding="utf-8")
         self.ocr = {p["page"] - 1: p for p in json.load(open(ocr_json, encoding="utf-8"))} if ocr_json else None
-        prose = re.sub(r"\$\$.*?\$\$|<table>.*?</table>|!\[[^\]]*\]\([^)]*\)|\$[^$]*\$", " ", self.md, flags=re.S)
+        prose = strip_math(re.sub(r"<table>.*?</table>|!\[[^\]]*\]\([^)]*\)", " ", self.md, flags=re.S))
         self.prose_words = set(re.findall(r"[a-z]{3,}", prose.lower())) - MATH_WORDS
         self._stream, self._ink, self._gray, self._onecol = {}, {}, {}, {}
         self._scale = None  # MinerU crop pixels per page point: one value per document, found with the first figure
@@ -72,11 +130,17 @@ class Pages:
             return [[(w["text"], pymupdf.Rect(w["x"] * S, w["y"] * S, (w["x"] + w["w"]) * S, (w["y"] + w["h"]) * S))
                      for w in l["words"]] for l in self.ocr[pi]["lines"] if l["words"]]
         lines = []
+        # no TEXT_CID_FOR_UNKNOWN_UNICODE here: an equation number's brackets would read as the letters their codes
+        # happen to be ("(62)" as "s62d"), not as the U+FFFD that NUM_TOKEN expects
         raw = self.doc[pi].get_text("rawdict", flags=pymupdf.TEXT_MEDIABOX_CLIP)
+        notes = drawn_notes(self.doc[pi])
         for b in raw["blocks"]:
             for l in b.get("lines", []):
-                chars = [(ch["c"], pymupdf.Rect(ch["bbox"])) for s in l["spans"] for ch in s["chars"]]
-                if not chars or l.get("dir", (1, 0))[1] != 0 or WATERMARK.search("".join(c for c, _ in chars)):
+                line = "".join(ch["c"] for s in l["spans"] for ch in s["chars"])
+                prose = self.is_prose([(w, None) for w in line.split()])  # equations keep their glyphs' full height
+                chars = [(ch["c"], char_box(ch, s["size"]) if prose else pymupdf.Rect(ch["bbox"]))
+                         for s in l["spans"] for ch in s["chars"]]
+                if not chars or l.get("dir", (1, 0))[1] != 0 or WATERMARK.search(line) or (notes and is_note(l["bbox"], line, notes)):
                     continue
                 words, cur, box = [], "", None
                 for c, bb in chars + [(" ", None)]:
@@ -89,7 +153,7 @@ class Pages:
                         box = pymupdf.Rect(bb) if box is None else box | bb
                 if words:
                     lines.append(words)
-        return lines
+        return join_pieces(lines)
 
     def ordered_lines(self, pi):
         W = self.doc[pi].rect.width
@@ -174,47 +238,22 @@ class Pages:
             return None, "not found" if not hits else f"ambiguous ({len(hits)})"
         return self.span(*hits[0]), None
 
-    def snap(self, quote, min_ratio=0.85):
+    def snap(self, quote, min_ratio=0.85, whole=True):
+        """The span closest to the quote, from the quote's first to its last character (text_locator.align):
+        (span, ratio) or (None, why). whole=False: where most of the quote is, e.g. the text around an equation."""
         q = norm_text(clean_needle(quote))
-        best = (0, None, None, None)
-        for pi in range(self.doc.page_count):
-            text = self.stream(pi)[0]
-            sm = difflib.SequenceMatcher(None, text, q, autojunk=False)
-            for blk in sm.get_matching_blocks():
-                if blk.size < 6:
-                    continue
-                s0 = max(0, blk.a - blk.b)
-                for ln in (len(q), int(len(q) * 0.95), int(len(q) * 1.05), int(len(q) * 0.9), int(len(q) * 1.1)):
-                    for d in (-2, -1, 0, 1, 2):
-                        a = max(0, s0 + d)
-                        r = difflib.SequenceMatcher(None, text[a:a + ln], q, autojunk=False).ratio()
-                        if r > best[0]:
-                            best = (r, pi, a, a + ln)
-        r, pi, a, b = best
-        if r < min_ratio:
-            return None, r
-        text = self.stream(pi)[0]
-        while a > 0 and text[a - 1] != " ":  # widen to whole words
-            a -= 1
-        while b < len(text) and text[b - 1] != " " and text[b] != " ":
-            b += 1
-        ratio = lambda a, b: difflib.SequenceMatcher(None, text[a:b].strip(), q, autojunk=False).ratio()
-        while True:  # drop a stray first or last word (e.g. an equation number) while that does not lower similarity
-            a2, b2 = text.find(" ", a, b) + 1, text.rfind(" ", a, b)
-            opts = [(ratio(x, y), x, y) for x, y in ((a2, b), (a, b2)) if 0 < x < y]
-            best2 = max(opts, default=None)
-            if not best2 or best2[0] < ratio(a, b):
-                break
-            _, a, b = best2
-        r = ratio(a, b)
-        return self.span(pi, a, b, f"snapped {r:.3f}"), r
+        cands = [(r, pi, s, e, why) for pi in range(self.doc.page_count) for r, s, e, why in align(self.stream(pi)[0], q, whole)]
+        r, pi, s, e, why = best_span(cands, min_ratio, unique=whole)
+        if pi is None:
+            return None, f"{why}; best similarity {r:.2f}"
+        return self.span(pi, s, e, f"snapped {r:.3f}"), r
 
     def place_quote(self, quote, min_ratio=0.85):
         loc, why = self.locate(quote)
         if loc:
             return loc, "direct"
         loc, r = self.snap(quote, min_ratio)
-        return loc, (f"snapped {r:.3f}" if loc else f"unplaced ({why}; best similarity {r:.2f})")
+        return loc, (loc["mode"] if loc else f"unplaced ({why}; {r})")
 
     # ---------- geometry ----------
     def one_column(self, pi):
@@ -269,13 +308,14 @@ class Pages:
                 return off[lid.index(li)]
         return off[-1] if off else 0
 
-    def ink(self, pi):
+    def ink(self, pi, light=False):
+        """Dark pixels of the page at OCR_DPI (light=True: anything but near-white, e.g. light-blue axis labels)."""
         if pi not in self._ink:
             pix = self.doc[pi].get_pixmap(dpi=OCR_DPI, colorspace=pymupdf.csGRAY)
-            m = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width) < 150
-            m[:, int((self.doc[pi].rect.width - 25) / S):] = False  # drop a vertical download stamp in the right margin
-            self._ink[pi] = m
-        return self._ink[pi]
+            g = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width).copy()
+            g[:, int((self.doc[pi].rect.width - 25) / S):] = 255  # drop a vertical download stamp in the right margin
+            self._ink[pi] = (g < 150, g < 220)
+        return self._ink[pi][light]
 
     def tighten(self, pi, r, pad=2.0):
         m = self.ink(pi)
@@ -291,10 +331,13 @@ class Pages:
         """Edges of the column holding r. robust: start from the most common line start and end (4-pt bins) and
         widen only by lines within 15 pt of them, so a centred stamp or a line spanning both columns does not
         widen the column; a protruding '=' or equation number still counts. robust=False: outermost lines.
-        Running headers and footers (top 10 %, bottom 8 % of the page) are left out."""
+        Running headers and footers (top 10 %, bottom 8 % of the page) are left out, and so are lines across both
+        columns of a two-column page (an abstract above the columns, Mattern 2008 p.1, outnumbers their lines)."""
         W, H = self.doc[pi].rect.width, self.doc[pi].rect.height
+        spans = lambda q: q.x0 < W / 2 - 10 and q.x1 > W / 2 + 10
         xs = [lr for lr, _ in self.stream(pi)[4]
-              if lr.width > 0.3 * W / 2 and lr.y0 > 0.1 * H and lr.y1 < 0.92 * H and self.same_col(pi, lr, r)]
+              if lr.width > 0.3 * W / 2 and lr.y0 > 0.1 * H and lr.y1 < 0.92 * H and self.same_col(pi, lr, r)
+              and (self.one_column(pi) or spans(r) or not spans(lr))]
         if not xs:
             return 30.0, W - 30.0
         x0s, x1s = [l.x0 for l in xs], [l.x1 for l in xs]
@@ -370,12 +413,14 @@ class Pages:
 
     def figure_images(self, n):
         """MinerU's images of figure n, all panels: the images just before its caption line(s), skipping panel labels
-        such as "(a) ..." (several "Fig. 5(a)", "Fig. 5(b)" captions add up); else the images just after the caption
-        (a caption above its figure). Returns (paths in Markdown order, Markdown offset of the first, whether each
-        panel has its own caption)."""
+        and other short lines the converter wrote between them ("(a) ...", "colorbar: 4 to 20"; several "Fig. 5(a)",
+        "Fig. 5(b)" captions add up); else the images just after the caption (a caption above its figure), unless
+        another figure's caption follows them. Returns (paths in Markdown order, Markdown offset of the first, whether
+        each panel has its own caption)."""
         lines = self.md.split("\n")
         starts = np.cumsum([0] + [len(l) + 1 for l in lines])
-        cap = re.compile(rf"^\s*(?:Fig\.?|Figure)\s*{md_label(n)}", re.I)
+        cap = re.compile(rf"^\s*[*_]*(?:Fig\.?|Figure)\s*{md_label(n)}", re.I)
+        any_fig = re.compile(r"^\s*[*_]*(?:Fig\.?|Figure)\s*[A-Z]?\d", re.I)
         img = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 
         def walk(i, step):
@@ -385,13 +430,16 @@ class Pages:
                 m = img.search(s)
                 if m:
                     found.append((m.group(1), starts[j]))
-                elif s and not (s.startswith("(") or re.match(r"[a-z]\)", s) or len(s) <= 3):
+                elif s and (any_fig.match(s) or re.match(r"[*_]*(?:Table|TABLE)\s*[A-Z]?\d", s)
+                            or (len(s) > 100 and not (s.startswith("(") or re.match(r"[a-z]\)", s)))):  # not "(a) ..."
+                    if step > 0 and found and any_fig.match(s):
+                        return []  # the images of the next figure
                     break
                 j += step
             return found[::-1] if step < 0 else found
 
         caps = [i for i, l in enumerate(lines) if cap.match(l)]
-        panel = re.compile(rf"^\s*(?:Fig\.?|Figure)\s*{md_label(n)}\s*\(?[a-z]\)?(?![a-z])", re.I)  # "Fig. 5(a) ...", "Fig. 5b ..."
+        panel = re.compile(rf"^\s*[*_]*(?:Fig\.?|Figure)\s*{md_label(n)}\s*\(?[a-z]\)?(?![a-z])", re.I)  # "Fig. 5(a) ...", "Fig. 5b ..."
         groups = [(i, walk(i, -1)) for i in caps]
         first = next(((i, w) for i, w in groups if w), None)
         per_panel = bool(first and panel.match(lines[first[0]]))
@@ -427,6 +475,73 @@ class Pages:
                 break
         return best
 
+    def text_rows(self, pi):
+        """Visual text lines of page pi: pieces on one baseline less than 30 pt apart joined (old scans give every
+        word its own piece). [(rect, words)] from top to bottom."""
+        rows = []
+        for lr, ws in sorted(self.stream(pi)[4], key=lambda x: (round(x[0].y0 / 2.5), x[0].x0)):
+            if rows and abs(rows[-1][0].y0 - lr.y0) < 2.5 and lr.x0 - rows[-1][0].x1 < 30:
+                rows[-1] = (rows[-1][0] | lr, rows[-1][1] + ws)
+            else:
+                rows.append((pymupdf.Rect(lr), list(ws)))
+        return rows
+
+    def grow(self, pi, r, reach=10.0):
+        """Widen a figure frame to the ink next to it: axis labels, colour bars and parts of the figure that MinerU's
+        image leaves out (feedback 2026-10-04/05: theta axis labels, a right-hand axis, a cell drawn beyond the crop).
+        Each step takes the ink within `reach` points of an edge; it stops at a blank band that wide, at the page
+        margins and at captions and body text (prose at least 100 pt and 60 % of the frame wide; a title inside the
+        figure is narrower)."""
+        m, page = self.ink(pi, light=True), self.doc[pi].rect
+        lim = page + (10, 10, -10, -10)
+        rows = [(lr, ws) for lr, ws in self.text_rows(pi) if lr.width >= 80 and self.is_prose(ws)]
+        para = lambda lr: any(o is not lr and min(o.x1, lr.x1) - max(o.x0, lr.x0) > 0.5 * min(o.width, lr.width)
+                              and -0.5 * lr.height < max(o.y0 - lr.y1, lr.y0 - o.y1) < 0.8 * lr.height for o, _ in rows)
+        text = [lr for lr, ws in rows if lr.width >= 100 and (lr.width >= 0.6 * r.width or para(lr)  # body text, a caption beside
+                                                             or re.match(r"(Fig\.?|FIG\.?|Figure|FIGURE|Table|TABLE)$", ws[0][0]))]
+        text += [lr for lr, _ in self.stream(pi)[4] if lr.y1 < 0.08 * page.height or lr.y0 > 0.94 * page.height]  # running head, foot
+        text += [lr for lr, ws in self.text_rows(pi) if not lr.intersects(r) and (lr.width >= 0.6 * r.width  # an equation beside it
+                 or re.match(r"(Fig\.?|FIG\.?|Figure|FIGURE|Table|TABLE)$", ws[0][0]))]  # a caption, however short
+        def rule_row(y):  # a line running on across the page on both sides, not the figure's own top or bottom line
+            a, b = m[y, max(0, int((r.x0 - 12) / S)):max(0, int((r.x0 - 2) / S))], m[y, int((r.x1 + 2) / S):int((r.x1 + 12) / S)]
+            return a.size > 0 and b.size > 0 and a.all() and b.all()
+        r = pymupdf.Rect(r)
+        for _ in range(200):
+            before = tuple(r)
+            for side in range(4):
+                s = pymupdf.Rect(r) + ((0, 2, 0, -2) if side in (0, 2) else (2, 0, -2, 0))  # not the lines it touches
+                if side == 0:
+                    s.x0, s.x1 = r.x0 - reach, r.x0
+                elif side == 1:
+                    s.y0, s.y1 = r.y0 - reach, r.y0
+                elif side == 2:
+                    s.x0, s.x1 = r.x1, r.x1 + reach
+                else:
+                    s.y0, s.y1 = r.y1, r.y1 + reach
+                s &= lim
+                if s.is_empty or any(s.intersects(t) for t in text):
+                    continue
+                y0, x0 = int(s.y0 / S), int(s.x0 / S)
+                sub = m[y0:int(s.y1 / S), x0:int(s.x1 / S)].copy()
+                if side in (1, 3):
+                    for i in np.where(sub.any(1))[0]:
+                        if rule_row(y0 + i):
+                            sub[i] = False
+                rows, cols = np.where(sub.any(1))[0], np.where(sub.any(0))[0]
+                if not len(rows):
+                    continue
+                if side == 0:
+                    r.x0 = min(r.x0, float(x0 + cols[0]) * S)
+                elif side == 1:
+                    r.y0 = min(r.y0, float(y0 + rows[0]) * S)
+                elif side == 2:
+                    r.x1 = max(r.x1, float(x0 + cols[-1] + 1) * S)
+                else:
+                    r.y1 = max(r.y1, float(y0 + rows[-1] + 1) * S)
+            if max(abs(a - b) for a, b in zip(before, r)) < 0.2:
+                break
+        return r
+
     def figure(self, n, dpi=60):
         paths, md_off, per_panel = self.figure_images(n)
         if not paths:
@@ -451,8 +566,12 @@ class Pages:
             return None
         best = max(best, self.match(tpls[anchor], [best[1]], np.arange(best[2] - 0.04, best[2] + 0.041, 0.005), dpi), key=lambda b: b[0])
         score, pi, s, _ = best
-        if score < 0.6:
-            return None
+        on_page = lambda q: any(re.match(rf"(?:Fig|FIG|Figure|FIGURE)\.?,?\s*{num_re(n)}\b", " ".join(t for t, _ in ws))
+                                for _, ws in self.stream(q)[4])
+        captioned = cap is not None and re.match(rf"(?:Fig|FIG|Figure|FIGURE)\.?,?\s*{num_re(n)}\s*[.:—–-]", " ".join(
+            t for lr, ws in self.stream(cap_pi)[4] if lr.intersects(cap) for t, _ in ws))  # a caption, not "(Fig. 1) d/a"
+        if score < 0.6 or (captioned and pi != cap_pi and score < 0.85 and not on_page(pi)):
+            return None  # off its caption's page, a close match only: not another figure's image
         self._scale = s
         f = 72 / dpi
         box = lambda b: pymupdf.Rect(b[3][0] * f, b[3][1] * f, (b[3][0] + b[3][2]) * f, (b[3][1] + b[3][3]) * f)
@@ -463,15 +582,22 @@ class Pages:
                 # separately captioned panels in the other column have body text between them: leave them out
                 if b[0] >= 0.7 and (not per_panel or self.same_col(pi, box(b), box(best))):
                     raw, panels = raw | box(b), panels + 1
-        rect = self.tighten(pi, raw + (-3, -3, 3, 3)) or raw
-        for lr, ws in self.stream(pi)[4]:  # never cut through a text line at the top or bottom edge
+        rect = self.grow(pi, self.tighten(pi, raw + (-3, -3, 3, 3)) or raw)
+        lines = self.stream(pi)[4]
+        para = lambda lr: any(o is not lr and self.is_prose(ows) and min(o.x1, lr.x1) - max(o.x0, lr.x0) > 0
+                              and -0.5 * lr.height < max(o.y0 - lr.y1, lr.y0 - o.y1) < 0.8 * lr.height for o, ows in lines)
+        for lr, ws in lines:  # never cut through a text line at the top or bottom edge
             overlap = min(lr.x1, rect.x1) - max(lr.x0, rect.x0)
             if overlap < 0.3 * lr.width or not self.is_prose(ws):
                 continue
+            # a short line within the figure's width and outside any paragraph is the figure's own: an axis title
+            # (de Kretser 2003 Fig. 9 "Volume Fraction Solids") is taken in, body text is left out
+            own = (lr.x0 >= rect.x0 - 2 and lr.x1 <= rect.x1 + 2 and lr.width < 0.6 * rect.width and not para(lr)
+                   and not re.match(r"(Fig\.?|FIG\.?|Figure|FIGURE|Table|TABLE)$", ws[0][0]))  # a short caption: "Figure 5."
             if lr.y0 < rect.y0 < lr.y1:
-                rect.y0 = lr.y1 + 0.5
+                rect.y0 = lr.y0 - 0.5 if own else lr.y1 + 0.5
             elif lr.y0 < rect.y1 < lr.y1:
-                rect.y1 = lr.y0 - 0.5
+                rect.y1 = lr.y1 + 0.5 if own else lr.y0 - 0.5
         info = {"match_score": round(score, 3)}
         if len(tpls) > 1:
             info["panels"] = f"{panels} of {len(tpls)}"
@@ -480,6 +606,18 @@ class Pages:
         return self.region(pi, rect, info)
 
     # ---------- numbered equations ----------
+    def number_tokens(self, n):
+        """[(page, rect)] of the printed equation number (n) standing at the right of its column."""
+        cands = []
+        for pi in range(self.doc.page_count):
+            for lr, ws in self.stream(pi)[4]:
+                for t, r in ws:
+                    if re.fullmatch(rf"{LEADER}[(�ð]{num_re(n)}[)�Þ]", t):  # text layers may give "(4)" as �4� or ð4Þ
+                        c0, c1 = self.column(pi, r)
+                        if r.x1 > c1 - 25 and (len(ws) <= 2 or lr.x0 > c0 + 30):
+                            cands.append((pi, r))
+        return cands
+
     def equation(self, n):
         b = next((b for b in re.finditer(r"\$\$(.*?)\$\$", self.md, re.S)  # MinerU writes \tag{3}, \tag {3}. or \tag{3),}
                   if re.search(rf"\\tag\s*\{{\s*{re.escape(str(n))}\s*\)?[.,]*\s*\}}", b.group(1))), None)
@@ -492,16 +630,9 @@ class Pages:
                 if not loc:  # missing or ambiguous: more words tell repeated phrases apart
                     loc, _ = self.locate(words_of(para, 12, tail))
                 if not loc:
-                    loc, _ = self.snap(words_of(para, 12, tail), 0.8)
+                    loc, _ = self.snap(words_of(para, 12, tail), 0.8, whole=False)
                 anchors[side] = loc
-        cands = []
-        for pi in range(self.doc.page_count):
-            for lr, ws in self.stream(pi)[4]:
-                for t, r in ws:
-                    if re.fullmatch(rf"[(�ð]{num_re(n)}[)�Þ]", t):  # text layers may give "(4)" as �4� or ð4Þ
-                        c0, c1 = self.column(pi, r)
-                        if r.x1 > c1 - 25 and (len(ws) <= 2 or lr.x0 > c0 + 30):
-                            cands.append((pi, r))
+        cands = self.number_tokens(n)
         ab, aa = anchors["before"], anchors["after"]
         line = lambda loc, i: self.stream(loc["page"])[4][loc["lines"][i]][0]
         if len(cands) == 1:
@@ -522,8 +653,11 @@ class Pages:
         eq_nums = [r for lr, ws in self.stream(pi)[4] if len(ws) <= 2 for t, r in ws
                    if re.fullmatch(NUM_TOKEN, t) and self.same_col(pi, r, ref) and r.x1 > c1 - 25] + ([ref] if len(cands) == 1 else [])
         beside = lambda lr: any(lr.x1 < r.x0 and min(lr.y1, r.y1) - max(lr.y0, r.y0) > 0.25 * min(lr.height, r.height) for r in eq_nums)
+        # body text starts at the column's left edge or fills half of it; words set inside an equation do neither
+        # ("Convection", "Diffusion" under the braces of TY007 Eq. 1)
+        text_line = lambda lr: lr.x0 < c0 + 0.25 * (c1 - c0) or lr.width > 0.5 * (c1 - c0)
         body = [lr for li, (lr, ws) in enumerate(self.stream(pi)[4])
-                if self.same_col(pi, lr, ref) and not beside(lr) and (self.is_prose(ws) or li in anchor_lines)]
+                if self.same_col(pi, lr, ref) and not beside(lr) and ((self.is_prose(ws) and text_line(lr)) or li in anchor_lines)]
         top = max([lr.y1 for lr in body if lr.y1 <= ref_y], default=40.0)
         bot = min([lr.y0 for lr in body if lr.y0 >= ref_y], default=self.doc[pi].rect.height - 40)
         H, lines = self.doc[pi].rect.height, self.stream(pi)[4]
@@ -555,14 +689,41 @@ class Pages:
         return self.region(pi, rect, {"number_found": len(cands) == 1})
 
     # ---------- tables ----------
+    def rules(self, pi, y0, y1):
+        """Horizontal rules between y0 and y1: Rects of thin ink bands (3 pt at most) with a run of 100 pt or more."""
+        m = self.ink(pi)[max(0, int(y0 / S)):int(y1 / S)]
+        hits = []
+        for i, row in enumerate(m):
+            if row.sum() * S < 100:
+                continue
+            d = np.diff(np.concatenate(([0], row.astype(np.int8), [0])))
+            starts, ends = np.where(d == 1)[0], np.where(d == -1)[0]
+            k = np.argmax(ends - starts)
+            if (ends[k] - starts[k]) * S >= 100:
+                hits.append(pymupdf.Rect(starts[k] * S, y0 + i * S, ends[k] * S, y0 + (i + 1) * S))
+        out = []
+        for h in hits:
+            if out and h.y0 - out[-1][-1].y1 < S / 2 and abs(h.x0 - out[-1][-1].x0) < 3:
+                out[-1].append(h)
+            else:
+                out.append([h])
+        return [pymupdf.Rect(min(h.x0 for h in g), g[0].y0, max(h.x1 for h in g), g[-1].y1) for g in out if g[-1].y1 - g[0].y0 <= 3]
+
+    def md_table(self, n):
+        """The Markdown caption 'Table n' and the HTML table up to 3 short lines below it (match or None)."""
+        return re.search(rf"\n[*_]*((?:Table|TABLE)\s*{md_label(n)}[*_]*[.:]?[^\n]*)\n(?:[^\n<]*\n){{0,3}}?<table>.*?</table>", self.md, re.S)
+
     def table(self, n):
-        tm = re.search(rf"\n((?:Table|TABLE)\s*{md_label(n)}[.:]?[^\n]*)\n(?:[^\n]*\n)??\n?<table>.*?</table>", self.md, re.S)
+        """Frame of table n: from its caption over its rows to its last rule (when the table has rules), with the
+        footnotes right below it whole; as wide as its rules or rows, which can exceed the text column."""
+        tm = self.md_table(n)
         if not tm:
             return None
         pi, cap = self.caption_line("Table|TABLE", n)
         if cap is None:
             return None
         nxt = next((p for p in self.md[tm.end():].split("\n\n") if p.strip() and not p.strip().startswith(("$", "\\", "<"))), "")
+        nxt = re.sub(r"^#+\s*", "", nxt.strip())  # a heading: "### **2.2. Diffusion**"
         loc, _ = self.locate(words_of(nxt, 6, False)) if nxt else (None, None)
         c0, c1 = self.column(pi, cap, robust=False)  # a table may span both columns, and is at least as wide as its caption
         c0, c1 = min(c0, cap.x0 - 4), max(c1, cap.x1 + 4)
@@ -585,11 +746,89 @@ class Pages:
                 rows[-1] = (rows[-1][0] | lr, rows[-1][1] + ws)
             else:
                 rows.append((pymupdf.Rect(lr), list(ws)))
-        for lr, ws in sorted(rows, key=lambda x: x[0].y0):
-            toks = re.findall(r"[a-z]{3,}|\d+(?:\.\d+)?", " ".join(t for t, _ in ws).lower())
-            if (lr.width > 0.6 * (c1 - c0) and self.is_prose(ws) and not ws[0][0][:1] in "*†‡§¶"
-                    and sum(t in cells for t in toks) < 0.5 * len(toks)):
+        toks = lambda ws: re.findall(r"[a-z]{3,}|\d+(?:\.\d+)?", " ".join(t for t, _ in ws).lower())
+        is_row = lambda ws: toks(ws) and sum(t in cells for t in toks(ws)) >= 0.5 * len(toks(ws))
+        limit = bot
+        for lr, ws in sorted(rows, key=lambda x: x[0].y0):  # the footnotes are added whole below
+            if (lr.width > 0.6 * (c1 - c0) and self.is_prose(ws) and not is_row(ws)) or ws[0][0][:1] in NOTE_MARKS:
                 bot = lr.y0
                 break
+        # a table with rules (the first right under the caption or its continuation) ends at its last rule: rules
+        # nearly as wide as the first and overlapping it, above the next caption and the next paragraph wider than the
+        # table; a figure or text below it is left out. A row read differently from the Markdown does not end it.
+        page, h = self.doc[pi], cap.height
+        rules = self.rules(pi, cap.y1, limit)
+        if any(abs(lr.y0 - cap.y0) < 3 * h and (lr.x1 < cap.x0 or lr.x0 > cap.x1)  # another table beside it: its rules can
+               and re.match(r"(Table|TABLE|Fig\.?|FIG\.?|Figure|FIGURE)$", ws[0][0]) for lr, ws in self.stream(pi)[4]):  # run on
+            lo, hi = self.column(pi, cap)
+            rules = [pymupdf.Rect(max(r.x0, lo), r.y0, min(r.x1, hi), r.y1) for r in rules if min(r.x1, hi) - max(r.x0, lo) >= 100]
+        top = [r for r in rules if r.width >= 0.6 * cap.width and r.y0 - cap.y1 < 6 * h]
+        info = {}
+        if top:
+            first = top[0]
+            under = lambda lr: min(lr.x1, first.x1) - max(lr.x0, first.x0) > 0.5 * lr.width  # below the table, not beside it
+            stop = min([lr.y0 for lr, ws in self.stream(pi)[4] if first.y1 < lr.y0 < limit and under(lr) and (
+                re.match(r"(Table|TABLE|Fig\.?|FIG\.?|Figure|FIGURE)\s*[A-Z]?\d", ws[0][0] + " " + (ws[1][0] if len(ws) > 1 else ""))
+                or (lr.width >= 0.8 * first.width and self.is_prose(ws) and not is_row(ws) and ws[0][0][:1] not in NOTE_MARKS))],
+                default=limit)
+            rules = [r for r in rules if r.y0 < stop and r.width >= 0.6 * first.width
+                     and min(r.x1, first.x1) - max(r.x0, first.x0) > 0.5 * r.width]
+            c0, c1 = min([cap.x0] + [r.x0 for r in rules]) - 2, max([cap.x1] + [r.x1 for r in rules]) + 2  # the rules' width
+            lo, hi = self.column(pi, cap)  # and the printed rows between them, in the caption's column (broken scanned rules)
+            cols = np.where(self.ink(pi)[int(first.y1 / S) + 2:int(rules[-1].y0 / S) - 1].any(0))[0] * S
+            cols = cols[(cols >= min(lo, c0)) & (cols <= max(hi, c1))]
+            if len(rules) > 1 and len(cols):
+                c0, c1 = min(c0, cols.min() - 1), max(c1, cols.max() + 1)
+            # the Markdown table's last row lies above the last rule, unless rows without rules follow (a rule under the
+            # header only, a table going on on the next page): then it ends at the first text line below, as without rules
+            last_row = (re.findall(r"<tr[^>]*>(.*?)</tr>", tm.group(0), re.S) or [""])[-1]
+            want = set(re.findall(r"[a-z]{3,}|\d+(?:\.\d+)?", re.sub(r"<[^>]+>", " ", last_row).lower()))
+            have = {t for lr, ws in self.text_rows(pi) if first.y0 - 1 < lr.y0 < rules[-1].y0 and under(lr) for t in toks(ws)}
+            bot = rules[-1].y1 + 1 if len(want & have) >= 0.5 * len(want) else max(bot, rules[-1].y1 + 1)
+            info["rules"] = len(rules)
+        wide = top and first.x0 < page.rect.width / 2 - 10 < page.rect.width / 2 + 10 < first.x1  # across both columns
+        pieces = [x for x in self.stream(pi)[4] if cap.y1 < x[0].y0 < bot and (wide or self.same_col(pi, x[0], cap))]
+        for lr, ws in pieces:  # rows reaching beyond the text column (a table set wider than the text), anything between rules
+            if is_row(ws) or (top and first.y0 < lr.y0 < rules[-1].y0):
+                c0, c1 = min(c0, lr.x0 - 2), max(c1, lr.x1 + 2)
+        # footnotes right below: lines starting with a note mark and the lines continuing them, all or none
+        below = sorted((x for x in self.stream(pi)[4] if (x[0].y0 + x[0].y1) / 2 > bot - 1  # a raised † lifts a line's top
+                        and x[0].x0 >= c0 - 10 and x[0].x1 <= c1 + 10), key=lambda x: x[0].y0)
+        last = None
+        for lr, ws in below:
+            if last is None and not (lr.y0 - bot < 1.5 * lr.height and re.match(rf"[{NOTE_MARKS}]|Notes?\b", ws[0][0])):
+                break
+            if last is not None and lr.y0 - last.y1 > 0.6 * lr.height:
+                break
+            last = lr
+            c0, c1 = min(c0, lr.x0 - 2), max(c1, lr.x1 + 2)
+        if last is not None:
+            bot, info["footnotes"] = last.y1 + 1, True
         rect = self.tighten(pi, pymupdf.Rect(c0, cap.y0 - 1, c1, bot - 0.5))
-        return self.region(pi, rect, {}) if rect else None
+        return self.region(pi, rect, info) if rect else None
+
+    # ---------- reasons ----------
+    def why_unlocated(self, kind, n):
+        """Why figure/table/equation n was not located, for the place report: most often the converter dropped or
+        garbled the caption label in the Markdown, so nothing ties the request to its images or rows."""
+        if kind == "figure":
+            if not re.search(rf"^\s*[*_]*(?:Fig\.?|Figure)\s*{md_label(n)}", self.md, re.I | re.M):
+                return f"the Markdown has no caption line 'Figure {n}' (the converter dropped or garbled it), so its images are unknown"
+            if not self.figure_images(n)[0]:
+                return f"no Markdown image next to the caption 'Figure {n}'"
+            return f"the Markdown images of Figure {n} do not match its caption's page (or match another page only weakly)"
+        if kind == "table":
+            if not re.search(rf"^[*_]*(?:Table|TABLE)\s*{md_label(n)}", self.md, re.M):
+                return f"the Markdown has no caption line 'Table {n}' (the converter dropped it), so its rows are unknown"
+            if not self.md_table(n):
+                return f"no HTML table within 3 lines below the Markdown caption 'Table {n}'"
+            if self.caption_line("Table|TABLE", n)[1] is None:
+                return f"no caption 'Table {n}' at the start of a line in the PDF text"
+            return f"the frame of Table {n} came out empty"
+        nums = len(self.number_tokens(n))
+        tagged = re.search(rf"\\tag\s*\{{\s*{re.escape(str(n))}\s*\)?[.,]*\s*\}}", self.md)
+        where = (f"the printed number ({n}) stands at a column's right edge {nums} times" if nums > 1 else
+                 f"the printed number ({n}) was not found at a column's right edge" if not nums else
+                 f"the band around the printed number ({n}) has no body-text lines above and below")
+        return where + ("" if nums == 1 else ", and the text around the Markdown equation is not on one page" if tagged
+                        else f", and the Markdown has no \\tag{{{n}}}")

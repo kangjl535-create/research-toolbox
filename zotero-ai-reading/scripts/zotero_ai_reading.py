@@ -21,12 +21,12 @@ from zar_common import (Library, api, api_all, api_status, zotero_available, min
                         COLORS, FIELDS, KEY_CHARS)
 import note_html as nh
 import text_locator as tl
-from page_regions import Pages, render_for_ocr, LABEL
+from page_regions import Pages, render_for_ocr, ocr_alignment, LABEL
 
 sys.stdout.reconfigure(encoding="utf-8")
 MAX_BATCH = 10
 AI_TAG, DRAFT_TAG = "AI", "ai-draft"
-LOCATOR = "0.1.0-rc.7"  # part of place's input hash: a new locator re-places papers placed by an older one
+LOCATOR = "0.3.1"  # part of place's input hash: a new locator re-places papers placed by an older one
 SHORT_QUOTE = 40  # characters; shorter highlights show the user only a fragment
 
 
@@ -74,7 +74,7 @@ def cmd_prepare(a):
     if a.folder:
         f = pathlib.Path(a.folder)
         rel = lib.rel(f) if f.is_absolute() else f
-        pairs = lib.bbt_items_in_folder(rel)
+        pairs = [(e, att, None) for e, att in lib.bbt_items_in_folder(rel)]
         if not pairs:
             die(f"no Zotero item with a PDF directly in {rel}")
     else:
@@ -83,20 +83,19 @@ def cmd_prepare(a):
             e = lib.bbt_entry(citekey=k) or lib.bbt_entry(item_key=k)
             if not e:
                 die(f"{k} is not in the Better BibTeX export")
-            att = next((x for x in e.get("attachments", []) if (x.get("path") or "").lower().endswith(".pdf")), None)
-            pairs.append((e, att))
+            pairs.append((e, *lib.pdf_attachment(e)))
     items, ready = [], 0
-    for e, att in sorted(pairs, key=lambda p: p[0].get("citationKey", "")):
+    for e, att, why in sorted(pairs, key=lambda p: p[0].get("citationKey", "")):
         ck = e["citationKey"]
         row = {"citekey": ck, "item_key": e["itemKey"], "title": e.get("title", "")}
         items.append(row)
         if att is None:
-            row.update(status="skip", reason="no PDF attachment"); continue
+            row.update(status="skip", reason=why); continue
         pdf_rel = lib.rel(att["path"])
         pdf = lib.root / pdf_rel if pdf_rel else None
         row.update(pdf_key=att["uri"].rsplit("/", 1)[-1], pdf=str(pdf), pdf_rel=str(pdf_rel))
         if pdf is None or not pdf.exists():
-            row.update(status="skip", reason="PDF not found under the library root"); continue
+            row.update(status="skip", reason=f"PDF not found under the library root: {att['path']}"); continue
         try:
             anns = [x for x in api_all(f"items/{row['pdf_key']}/children?itemType=annotation") if not x["data"].get("deleted")]
         except Exception as ex:
@@ -117,13 +116,16 @@ def cmd_prepare(a):
         if ready >= a.limit:
             row.update(status="later", reason=f"batch limit {a.limit}"); continue
         doc = pymupdf.open(pdf)
-        chars = tl.text_chars(doc)
         row["pages"] = doc.page_count
-        row["kind"] = "text" if sum(chars) / max(1, doc.page_count) >= 200 else "scan"
-        if row["kind"] == "scan":
-            ocr = run / ck / "ocr.json"
-            if not ocr.exists():
-                run_ocr(pdf, ocr, run / ck / "ocr_pages")
+        kind, why = tl.text_kind(doc, md.read_text(encoding="utf-8"))
+        ocr = run / ck / "ocr.json"
+        if kind != "text" and not ocr.exists():
+            run_ocr(pdf, ocr, run / ck / "ocr_pages")
+        if kind == "check":  # a publisher's OCR layer: used only where its words lie on the printed ones
+            share = ocr_alignment(doc, ocr)
+            kind, why = ("text" if share >= 0.8 else "scan"), f"{why}, {share:.0%} of its words on the printed ones"
+        row.update(kind=kind, **({"kind_why": why} if why else {}))
+        if kind == "scan":
             row["ocr"] = str(ocr)
         row["status"] = "ready"
         ready += 1
@@ -131,7 +133,8 @@ def cmd_prepare(a):
              "vault": str(lib.vault), "alongside": bool(a.alongside), "items": items}
     save(run / "batch.json", batch)
     for r in items:
-        extra = f"{r.get('kind', '')} {r.get('md_status', '')}" if r["status"] == "ready" else r.get("reason", "")
+        extra = (f"{r.get('kind', '')} {r.get('md_status', '')}" + (f" ({r['kind_why']})" if r.get("kind_why") else "")
+                 if r["status"] == "ready" else r.get("reason", ""))
         print(f"{r['status']:6s} {r['citekey']:45s} {extra}")
     print(f"ready {ready} | run dir {run}")
 
@@ -161,16 +164,38 @@ def compact_norm(s):
 
 
 def in_markdown(quote_c, md_c, min_ratio=0.95):
-    """Quote (compacted) occurs in the Markdown, allowing tiny conversion slips (MinerU drops letters of ligatures,
-    e.g. "efficiency" -> "eficiency"); blocks invented or paraphrased quotes."""
+    """Quote (compacted) occurs in the Markdown, allowing only what conversion loses: one or two characters the
+    Markdown lacks (MinerU drops letters of ligatures, "efficiency" -> "eficiency"; inline math such as "Δp" is
+    stripped from it), one misread character, or punctuation. A changed, added or dropped word is not verbatim
+    (feedback 2026-10-09: "The name ... two-phase" for "The term ... twin-phase" passed at 0.977)."""
     if quote_c in md_c:
         return True
     m = difflib.SequenceMatcher(None, md_c, quote_c, autojunk=False).find_longest_match(0, len(md_c), 0, len(quote_c))
     if m.size < 12:
         return False
     start = max(0, m.a - m.b)
-    window = md_c[start:start + len(quote_c) + 5]
-    return difflib.SequenceMatcher(None, window, quote_c, autojunk=False).ratio() >= min_ratio
+    if difflib.SequenceMatcher(None, md_c[start:start + len(quote_c) + 5], quote_c, autojunk=False).ratio() < min_ratio:
+        return False
+    window = md_c[max(0, start - 10):start + len(quote_c) + 10]  # with Markdown text on both sides of the quote
+    ops = [op for op in difflib.SequenceMatcher(None, window, quote_c, autojunk=False).get_opcodes() if op[0] != "equal"]
+    if ops and ops[0][0] == "delete" and ops[0][1] == 0:
+        ops = ops[1:]  # the Markdown text before the quote
+    if ops and ops[-1][0] == "delete" and ops[-1][2] == len(window):
+        ops = ops[:-1]  # and after it
+    if ops and (ops[0][3] == 0 or ops[-1][4] == len(quote_c)):
+        return False  # the quote's first or last characters are not the Markdown's: "A term" for "The term"
+    blocks = []  # adjacent differences as one (Markdown part, quote part)
+    for _, i1, i2, j1, j2 in ops:
+        if blocks and blocks[-1][1] == i1 and blocks[-1][3] == j1:
+            blocks[-1][1:4:2] = [i2, j2]
+        else:
+            blocks.append([i1, i2, j1, j2])
+    for i1, i2, j1, j2 in blocks:
+        md_part, q_part = window[i1:i2], quote_c[j1:j2]
+        letters = sum(c.isalnum() for c in md_part)
+        if not ((letters == 0 and len(q_part) <= 2) or (letters == 1 and len(q_part) == 1)):
+            return False
+    return True
 
 
 def validate_reading(rd, md_text):
@@ -184,7 +209,7 @@ def validate_reading(rd, md_text):
         for a, b in re.findall(r"\{p\.\s*(\d+)\s*[-–]\s*(\d+)\}", json.dumps(v, ensure_ascii=False)):
             if not 0 < int(b) - int(a) <= 2:
                 errs.append(f"field {k}: page range {{p.{a}-{b}}}: cite the specific page, or a derivation over at most 3 pages")
-    md_c = compact_norm(re.sub(r"\$[^$]*\$", " ", md_text))
+    md_c = compact_norm(tl.strip_math(md_text))
     for i, h in enumerate(rd.get("highlights", [])):
         q, c = h.get("quote", ""), h.get("comment", "")
         if h.get("color") not in COLORS:
@@ -274,7 +299,7 @@ def cmd_place(a):
         for g in rd.get("regions", []):
             r = getattr(pages, g["kind"])(g["n"])
             if not r:
-                dropped.append({"region": f"{g['kind']} {g['n']}", "why": "not located"}); continue
+                dropped.append({"region": f"{g['kind']} {g['n']}", "why": f"not located: {pages.why_unlocated(g['kind'], g['n'])}"}); continue
             page = doc[r["page"]]
             label = (page.get_label() or str(r["page"] + 1)) if row["kind"] == "text" else str(r["page"] + 1)
             payload.append({"key": new_key(used), "type": "image", "text": "", "comment": nfc(g["comment"]), "color": COLORS[g["color"]],
@@ -300,6 +325,10 @@ def cmd_place(a):
         print(f"{ck}: placed {len(payload)} (snapped {snapped}), dropped {len(dropped)}; previews in {run / ck}")
         for d in dropped:
             print("   dropped:", d)
+        lost = sum(1 for d in dropped if "quote" in d)
+        if row["kind"] == "text" and lost >= 3 and lost > len(rd["highlights"]) / 2:
+            print("   most quotes are not in the PDF's text layer: if pagemap shows garbled or missing text, the layer is "
+                  "unusable and the paper needed OCR; record that as a defect of prepare")
         print("   " + coverage_line(rd, payload, doc.page_count))
         short = [h["quote"] for h in rd["highlights"] if len(h["quote"]) < SHORT_QUOTE]
         if short:

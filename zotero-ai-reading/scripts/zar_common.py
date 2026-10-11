@@ -236,6 +236,19 @@ class Library:
                 return False
             time.sleep(3)
 
+    def pdf_attachment(self, entry):
+        """(attachment, None) for the entry's first PDF attachment whose file exists under the library root, or (None,
+        why). The export can still list an attachment removed from Zotero (Better BibTeX re-exports an item only when
+        the item itself changes), so the first one listed is not trusted."""
+        pdfs = [a for a in entry.get("attachments", []) if (a.get("path") or "").lower().endswith(".pdf")]
+        for a in pdfs:
+            rel = self.rel(a["path"])
+            if rel is not None and (self.root / rel).exists():
+                return a, None
+        if not pdfs:
+            return None, "no PDF attachment"
+        return None, "no PDF attachment exists under the library root: " + "; ".join(a["path"] for a in pdfs)
+
     def bbt_items_in_folder(self, folder_rel):
         """(entry, pdf attachment) pairs whose PDF lies directly in folder_rel (relative to the library root)."""
         out = []

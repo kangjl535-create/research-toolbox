@@ -3,17 +3,17 @@
 - Maintained source repository: https://github.com/kangjl535-create/custom-agent-skills
 - Original skill name: `zotero-ai-reading`
 - Upstream path: `paper-library-skills/zotero-ai-reading`
-- Selected reference: tag `zotero-ai-reading-v0.3.0`
-- Fixed commit: `6cb6ff9cb0006266adb9613b7252cf9dfca90ec8`
-- Skill directory Git tree: `7a3ade35c8c36faa4bfc6610e4aa58693e61becc`
-- Source: https://github.com/kangjl535-create/custom-agent-skills/tree/6cb6ff9cb0006266adb9613b7252cf9dfca90ec8/paper-library-skills/zotero-ai-reading
-- Source-query timestamp: `2026-10-08T08:44:11+00:00`
-- Acquisition timestamp: `2026-10-08T08:44:11+00:00`
-- Upstream declared skill version: `0.3.0`
-- Distribution name: `zotero-ai-reading`; directory: `zotero-ai-reading`; distribution version: `0.3.0`
+- Selected reference: tag `zotero-ai-reading-v0.3.1`
+- Fixed commit: `c3ee408e9d3a94a189fa0f5cac119d91fffe1d97`
+- Skill directory Git tree: `b11eead9a1dd236830f6130d56348b6c9aa75662`
+- Source: https://github.com/kangjl535-create/custom-agent-skills/tree/c3ee408e9d3a94a189fa0f5cac119d91fffe1d97/paper-library-skills/zotero-ai-reading
+- Source-query timestamp: `2026-10-11T09:21:38+00:00`
+- Acquisition timestamp: `2026-10-11T09:21:38+00:00`
+- Upstream declared skill version: `0.3.1`
+- Distribution name: `zotero-ai-reading`; directory: `zotero-ai-reading`; distribution version: `0.3.1`
 - License: MIT. See [LICENSE](LICENSE).
 
-Latest stable upstream release: [zotero-ai-reading v0.3.0](https://github.com/kangjl535-create/custom-agent-skills/releases/tag/zotero-ai-reading-v0.3.0) (2026-10-08).
+Latest stable upstream release: [zotero-ai-reading v0.3.1](https://github.com/kangjl535-create/custom-agent-skills/releases/tag/zotero-ai-reading-v0.3.1) (2026-10-11).
 
 ## Preservation and changes
 
@@ -21,6 +21,6 @@ All 11 upstream skill files are retained byte-for-byte (verified against the ups
 
 ## Validation and update boundary
 
-Upstream: the offline test suite (85 checks) passed locally and in the upstream CI on the release commit; this release writes to Zotero 10 through its local API instead of pasted scripts and builds the annotation note itself (new scripts/note_html.py). This distribution copy was checked by blob comparison and quick_validate.py only. The repository has no CI validation workflow; local checks are not CI or scientific acceptance.
+Upstream: the offline test suite (130 checks) passed locally and in the upstream CI on the release commit, and 198 read-only live checks passed with Zotero 10; this release corrects highlight and frame placement and scan detection (place, prepare). This distribution copy was checked by blob comparison and quick_validate.py only. The repository has no CI validation workflow; local checks are not CI or scientific acceptance.
 
 Compare the selected upstream skill tree with a future release before adopting changes. No automatic update or CC Switch migration is performed.
