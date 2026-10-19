@@ -15,6 +15,8 @@ HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 PLACEHOLDER_RE = re.compile(r"<[^>\n]+>")
 UNCERTAINTY_RE = re.compile(r"⟦(U\d{3,})⟧")
 REPORT_ID_RE = re.compile(r"(?:^|\|)\s*(U\d{3,})\s*(?=\|)", re.MULTILINE)
+QUEUE_TYPES = {'reading', 'relationship', 'source-check', 'deleted-only'}
+PROFILE_COLUMNS = ('id', 'mark', 'meaning', 'rule', 'scope', 'confirmed on', 'source')
 
 
 def read_text(path: Path, label: str) -> str:
@@ -101,6 +103,57 @@ def tables(text: str):
     return headers, errors
 
 
+def table_rows(text, required):
+    """Header and rows of the first table whose lower-cased header has all required columns."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if not line.strip().startswith('|'):
+            continue
+        head = [c.lower() for c in table_cells(line)]
+        if all(c in head for c in required):
+            rows = []
+            for row in lines[i+2:]:
+                if not row.strip().startswith('|'):
+                    break
+                rows.append(dict(zip(head, table_cells(row))))
+            return rows
+    return None
+
+
+def queue_types(uncertainties):
+    """Map queue ID -> Type cell, or None when the queue table has no Type column."""
+    rows = table_rows(uncertainties, ('id', 'type'))
+    if rows is None:
+        return None
+    return {r['id']: r.get('type', '').strip('` ') for r in rows if re.fullmatch(r'U\d{3,}', r.get('id', ''))}
+
+
+def check_profile(profile, traceability):
+    rows = table_rows(profile, PROFILE_COLUMNS)
+    if rows is None:
+        return ['author profile has no legend table with columns: '+', '.join(PROFILE_COLUMNS)]
+    errors, ids = [], []
+    for row in rows:
+        lid = row.get('id', '')
+        if not re.fullmatch(r'L\d+', lid):
+            errors.append('invalid legend ID in author profile: '+lid)
+            continue
+        if lid in ids:
+            errors.append('duplicate legend ID in author profile: '+lid)
+        ids.append(lid)
+        if not all(row.get(c, '').strip() for c in ('mark', 'meaning', 'rule')):
+            errors.append('author profile legend needs mark, meaning and rule: '+lid)
+    cited = re.search(r'(?m)^- Author profile:[^\r\n]*', traceability)
+    if not cited:
+        errors.append('missing source-manifest field: Author profile')
+    else:
+        applied = re.search(r'legends applied:(.*)', cited.group(0))
+        for lid in re.findall(r'\bL\d+\b', applied.group(1) if applied else ''):
+            if lid not in ids:
+                errors.append('legend cited in traceability is not in the author profile: '+lid)
+    return errors
+
+
 def template_contract(template, override=None):
     modes = re.findall(r'<!--\s*labnote:mode=([^>]*?)\s*-->', template)
     errors = []
@@ -117,7 +170,7 @@ def template_contract(template, override=None):
     return template, mode, dates[0].strip() if dates else None, errors
 
 
-def validate(template, final, uncertainties, traceability, evidence=None, template_mode=None, run_date=None):
+def validate(template, final, uncertainties, traceability, evidence=None, template_mode=None, run_date=None, profile=None):
     template, mode, date_field, errors = template_contract(template, template_mode)
     errors.extend(check_heading_order(template, final))
     if mode == 'guided' and re.search(r'<!--\s*labnote:', final):
@@ -162,6 +215,13 @@ def validate(template, final, uncertainties, traceability, evidence=None, templa
         errors.append('uncertainty markers missing from queue: '+', '.join(sorted(inline-reported)))
     if reported - inline:
         errors.append('orphan uncertainty rows: '+', '.join(sorted(reported-inline)))
+    for uid, kind in sorted((queue_types(uncertainties) or {}).items()):
+        if kind not in QUEUE_TYPES:
+            errors.append(f'invalid uncertainty type for {uid}: {kind!r}')
+        elif kind == 'deleted-only' and uid in UNCERTAINTY_RE.findall(final):
+            errors.append('deleted-only uncertainty must stay out of final.md: '+uid)
+    if profile is not None:
+        errors.extend(check_profile(profile, traceability))
     if '# Traceability' not in traceability:
         errors.append("traceability.md is missing '# Traceability'")
     for label in ('Source', 'Pages inspected', 'Template'):
@@ -234,6 +294,7 @@ def main() -> int:
     parser.add_argument("--evidence", type=Path, help="Optional page-level evidence JSON")
     parser.add_argument('--template-mode', choices=['strict','guided'])
     parser.add_argument('--run-date', help='Recorded local conversion date, YYYY-MM-DD')
+    parser.add_argument('--profile', type=Path, help='Author profile whose legends traceability.md cites')
     args = parser.parse_args()
 
     errors: list[str] = []
@@ -244,12 +305,16 @@ def main() -> int:
         uncertainties = read_text(args.uncertainties, "uncertainties")
         traceability = read_text(args.traceability, "traceability")
         evidence = json.loads(read_text(args.evidence, 'evidence')) if args.evidence else None
+        profile = read_text(args.profile, 'profile') if args.profile else None
     except (OSError, UnicodeError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    errors.extend(validate(template, final, uncertainties, traceability, evidence, args.template_mode, args.run_date))
+    errors.extend(validate(template, final, uncertainties, traceability, evidence, args.template_mode, args.run_date, profile))
     final_ids = set(UNCERTAINTY_RE.findall(final+'\n'+traceability))
+
+    if REPORT_ID_RE.search(uncertainties) and queue_types(uncertainties) is None:
+        warnings.append("review queue has no Type column (reading | relationship | source-check | deleted-only)")
 
     for token in ("TODO", "[TODO", "TBD"):
         if token in final:

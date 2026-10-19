@@ -11,6 +11,9 @@ Use explicit paths or attached-file identifiers. Never guess which nearby files 
 | `output_dir` | yes | Writable directory | Destination for generated files |
 | `ocr_draft` | no | Markdown, text, MMD, or OCR JSON | Candidate transcription only |
 | `user_context` | no | Explicit user-supplied facts or mapping rules | May supplement the note only when clearly attributed |
+| `author_profile` | no | Markdown legend table | The author's confirmed legends; defaults to `labnote-profile.md` beside the template, see [author-profile.md](author-profile.md) |
+
+The `labnote-profile.md` default is the one documented exception to never guessing nearby inputs: look only beside the template, and tell the user when it is applied.
 
 If multiple source files are supplied, preserve the user's order. If no order is supplied, a deterministic filename order is acceptable for a batch of separate outputs; explicitly record it. Ask only when a required combined chronology cannot be established. Do not derive experimental dates from that processing order.
 
@@ -20,7 +23,7 @@ Always create these three UTF-8 files inside `output_dir`:
 
 1. `final.md` - the supplied template populated only with supported content.
 2. `uncertainties.md` - the manual-review queue; write an explicit empty-state line when there are no uncertainties.
-3. `traceability.md` - source manifest and page-level evidence map, including unmapped and crossed-out material.
+3. `traceability.md` - source manifest (including the author profile applied) and page-level evidence map, including unmapped and crossed-out material, or only deletion locations under an omit legend.
 
 Create `raw.md` only when the run itself produced or received an OCR draft and preserving it helps auditability. Never overwrite an input OCR file.
 

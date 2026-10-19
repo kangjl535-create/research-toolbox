@@ -2,7 +2,7 @@
 
 ## Keep evidence independent
 
-Save the untouched input, runtime template, first-pass output, route/model identification as available, render settings and timing records. Capture author corrections verbatim with source, date, exact region, previous reading, accepted replacement, and which claims are resolved. Do not ask the author to retype the whole notebook. Prioritize a few high-impact ambiguities at a time while continuing independent work.
+Save the untouched input, runtime template, first-pass output, route/model identification as available, render settings and timing records. Capture author corrections verbatim with source, date, exact region, previous reading, accepted replacement, and which claims are resolved. Do not ask the author to retype the whole notebook. When an answer states a reusable convention (a deletion, arrow, colour or symbol legend), offer to record it in the author profile ([author-profile.md](author-profile.md)) so later records do not ask again. Prioritize a few high-impact ambiguities at a time while continuing independent work.
 
 Produce a new revision instead of overwriting a human-edited note. Apply corrections narrowly: confirmation of an exponent resolves that exponent, and confirmation that blue ink denotes actual amounts resolves the relationship, not necessarily every digit or omitted unit. Preserve visible source mistakes unless the author explicitly corrects them; retain both the original and attributed correction if scientific content changes.
 

@@ -22,7 +22,7 @@ Inspect every page at sufficient resolution. Re-render or crop a region when nee
 - deletions, overwrites, insertions, and revised calculations;
 - tables, sketches, and references to external files.
 
-Do not infer text hidden by a strike-through. If it remains legible and is relevant, mark it as crossed out; otherwise record that crossed-out content is illegible.
+Do not infer text hidden by a strike-through. If it remains legible and is relevant, mark it as crossed out; otherwise record that crossed-out content is illegible. A confirmed omit legend in the author profile overrides this rule: struck text is not read or transcribed, and traceability records only its location ([author-profile.md](author-profile.md)).
 
 ## Faithful representation
 
@@ -32,7 +32,7 @@ Do not infer text hidden by a strike-through. If it remains legible and is relev
 - Preserve original units. Do not convert units unless the source itself does so.
 - Preserve the writer's conclusion strength. A question remains a question; a possibility remains tentative.
 - Do not silently repair scientifically implausible content. Flag it for review.
-- When a diagram cannot be represented safely as text, describe only visible labels and relationships, and point to its page/region.
+- When a sketch shows structure (grouping, assignment, flow, layout, timeline), re-express what it means as a Markdown table or a Mermaid graph: every label becomes a cell or node, and every drawn link becomes a cell position or an edge. Do not walk through the drawing in prose ("on the left…", "the arrow points to…"). Add no link that is not drawn; queue an ambiguous arrow, bracket or grouping as a `relationship` item instead of resolving it. Record in traceability which diagram elements became which rows, columns or edges. Use prose only for a drawing with no structure to extract (for example a freehand picture of a device), as a short caption that points to its page and region. See the example in [review-files.md](review-files.md).
 
 ## Confidence decisions
 
@@ -71,13 +71,23 @@ When an OCR draft exists, compare it against the page rather than polishing it i
 - Color changes may indicate theoretical versus actual quantities, annotations, different recording times, or corrections. An arrow is not sufficient evidence of replacement. Retain both endpoints and mark the relationship uncertain until the source or author establishes it.
 - For recipes, first transcribe a literal grid including row labels, column labels, units, colors, missing cells and arrows. If column alignment or association is unclear, retain the row fragment with an uncertainty rather than silently binding values to reagents.
 - Keep calculated amounts separate from actual added amounts. Do not copy an unannotated theoretical value into an actual-amount cell. If a later annotation omits its unit, preserve that omission unless inheritance is established; document any author confirmation.
-- Do not change a concentration, pressure, exponent, coefficient, range endpoint or total merely to make arithmetic or physics consistent. Such checks can flag possible source issues only. Distinguish a transcription uncertainty from a clearly read but possibly incorrect source statement.
+- Do not change a concentration, pressure, exponent, coefficient, range endpoint or total merely to make arithmetic or physics consistent. Such checks can flag possible source issues only. Distinguish a transcription uncertainty (queue type `reading`) from a clearly read but possibly incorrect source statement (`source-check`).
 - Preserve checkbox, tick and cross symbols without inventing an execution outcome when their semantics are unclear. Keep tasks, estimates, hypotheses, and questions visibly labeled if placed alongside observations.
-- Once the author supplies a symbol legend, apply it and attribute it. Keep completed tasks in the plan inventory with their status; never silently reclassify the task itself as an operation. Distinguish task crosses from deletion marks.
+- Once the author supplies a symbol legend, apply it and attribute it; offer to save a reusable one to the author profile. Keep completed tasks in the plan inventory with their status; never silently reclassify the task itself as an operation. Distinguish task crosses from deletion marks.
 - Preserve manual indentation as ownership evidence. Child parameter lines belong under their visibly indicated object, not as peers of that object. Inspect image layout before flattening OCR text into bullets.
 - Treat explicit problem and hypothesis blocks as substantive scientific content. Retain every numbered item and the distinction between observation, possible cause and proposed validation, including colored/marginal continuations. See [guided-template.md](guided-template.md) for the final completeness audit.
 - Preserve readable marginal errands in unmapped evidence. Do not treat invoice amounts, page numbers or product codes as experiment measurements. Avoid guessing whether a numeric identifier is a catalog number or a lot number.
 
 ## Two-pass high-risk check
 
-First read the full page with spatial context. Then revisit each number-unit pair, exponent, sign, formula structure, table alignment and deletion at detail scale. The second pass uses the image, not only the first-pass text. Record unresolved exact spans, not whole paragraphs marked vaguely uncertain. Previous model output, two agreeing OCR services and apparently sensible calculations cannot replace the page or explicit author feedback.
+First read the full page with spatial context. Then revisit each number-unit pair, exponent, sign, formula structure, table alignment and deletion at detail scale. The second pass uses the image, not only the first-pass text.
+
+Light deletions are easy to read as content. Treat these as possible deletion marks:
+
+- a short stroke that crosses a glyph's outline at an angle or position unlike the glyph's own strokes;
+- one or two short parallel lines over a character or digit, even when faint or blended with a horizontal stroke;
+- an extra or duplicated glyph, or a word that reads naturally only without one glyph;
+- a glyph whose reading requires ignoring one of its strokes;
+- a dense or overwritten glyph next to a clean rewrite.
+
+Queue each one as a `reading` item that asks "deleted or content?" and lists "possibly deleted" among the alternatives, never only alternative readings of the glyph. Use the deletion form described in the author profile to calibrate, not to skip the question. Record unresolved exact spans, not whole paragraphs marked vaguely uncertain. Previous model output, two agreeing OCR services and apparently sensible calculations cannot replace the page or explicit author feedback.
