@@ -14,12 +14,17 @@ Requires Python 3.10+ and `pypdfium2`; the tested package version is recorded in
 
 ```text
 python scripts/prepare_pages.py --source note-a.pdf note-b.pdf --output-dir work/pages --manifest work/cold.json
-python scripts/prepare_pages.py --source note-a.pdf --output-dir work/details --page 1 --crop 0.10,0.35,0.95,0.65 --dpi 288
+python scripts/prepare_pages.py --source note-a.pdf --output-dir work/details --dpi 288 --page 1 \
+  --crop band1=0,0.10,1,0.25 --crop table=0.10,0.35,0.95,0.65 --crop sketch@2=0.05,0.50,0.60,0.80
 ```
 
 Coordinates are fractions of the displayed page, top-left origin. Default overview DPI is 144; increase when the page is dense. The helper respects PDF display rotation, retains color, writes PNG images and records page numbers, dimensions, hashes, settings, renderer version, elapsed seconds and cache hits. It never sets an inspected flag. Source PDFs are not modified.
 
-Reuse is keyed by the SHA-256 of source bytes plus renderer version and rendering settings. A cached image's own hash is checked before reuse. Changing the source, DPI or crop invalidates that result. A template change does not require rerendering an unchanged PDF, but it does require remapping/revalidating the final note. Run separate invocations to distinct manifest paths if timing cold and warm runs. Do not run simultaneous writers to the same cache path.
+Repeat `--crop NAME=x0,y0,x1,y1` for every detail region of one source in a single call; `NAME@PAGE=` overrides `--page`. Each page is rendered once and each crop is written as `crops/NAME.png`, all in one manifest. Names are 1–64 letters, digits, `.`, `_` or `-`, unique per call. A name already used in that folder for a different region or DPI is refused, so earlier crops cited in traceability are never overwritten; choose a new name. An unnamed `--crop x0,y0,x1,y1` still works and gets a name derived from its cache key.
+
+Every page record reports `image_objects`, and, when the page holds exactly one image (a typical scan), `native_px` and `effective_dpi`. Render detail crops at or near that effective DPI: higher values only magnify the scan, and lower values discard detail. For vector or multi-image pages these fields are `null`; choose DPI from the overview.
+
+Reuse is keyed by the SHA-256 of source bytes plus renderer version and rendering settings. A cached image's own hash is checked before reuse. Changing the source or DPI invalidates a cached overview; for a named crop the same change is refused, as above. A template change does not require rerendering an unchanged PDF, but it does require remapping/revalidating the final note. Run separate invocations to distinct manifest paths if timing cold and warm runs. Do not run simultaneous writers to the same cache path.
 
 Embedded-image extraction may be faster but is not the default: a page may contain rotation, transforms, overlays, annotations or multiple image tiles. Use it only after establishing equivalence with the rendered page.
 

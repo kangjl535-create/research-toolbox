@@ -2,7 +2,7 @@
 name: handwritten-labnote-to-markdown
 description: Convert handwritten scientific lab-note PDFs or images into an auditable Markdown document using a user-supplied Markdown template. Use when faithful transcription, template mapping, source traceability, and explicit uncertainty handling matter; do not use for summarizing papers or inventing missing experimental details.
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Handwritten Lab Note to Markdown
@@ -15,7 +15,7 @@ Create a faithful, reviewable transcription whose structure comes from the templ
 - One Markdown template for this run.
 - An output directory.
 
-An OCR draft (for example from MinerU, Mathpix, or another converter) is optional. Never require a particular OCR vendor or model.
+An OCR draft (for example from MinerU, Mathpix, or another converter) is optional. Never require a particular OCR vendor or model. An author profile of confirmed legends (deletion marks, arrows, ink colours, symbols) is optional; read [references/author-profile.md](references/author-profile.md) at the start of every run.
 
 Read [references/io-contract.md](references/io-contract.md) before starting. Read [references/conversion-policy.md](references/conversion-policy.md) while transcribing and mapping. Read [references/review-files.md](references/review-files.md) before writing the outputs.
 
@@ -36,13 +36,13 @@ Read [references/guided-template.md](references/guided-template.md) for template
 
 ## Workflow
 
-1. Validate that the original note and template are available and readable. Record their exact filenames. Do not derive experimental facts from filenames unless the user explicitly authorizes that source of evidence.
-2. Inventory page count, source hashes and visible date blocks. Prepare cached color overview images once; visually inspect every page. Use focused detail crops for dense formulas, small superscripts, tables, arrows and ambiguous strokes. Correct rotation for inspection without altering the original. A rendered page is not an inspected page.
+1. Validate that the original note and template are available and readable. Record their exact filenames. Do not derive experimental facts from filenames unless the user explicitly authorizes that source of evidence. Load the author profile (`author_profile`, or `labnote-profile.md` beside the template). If there is none, or it has no deletion legend, ask the author once, before transcribing, how they mark mistakes and what their arrows, colours and symbols mean; see [references/author-profile.md](references/author-profile.md).
+2. Inventory page count, source hashes, native scan resolution and visible date blocks. Prepare cached color overview images once; visually inspect every page. Use focused detail crops, at or near the native resolution, for dense formulas, small superscripts, tables, arrows, diagrams and ambiguous strokes. Correct rotation for inspection without altering the original. A rendered page is not an inspected page.
 3. Choose direct visual transcription or optional OCR-assisted transcription based on available tools and the input. Do not run multiple OCR vendors by default. Check all numbers, units, exponents, variables, formulas, arrows, deletion marks, and page order against the original page; OCR agreement and earlier conversations are not verified ground truth.
 4. Build a page-level evidence ledger before populating the template. Preserve indentation and parent-child ownership before classifying content. Track scientific role separately from reading status and task completion. A completed plan remains a plan. Capture whole problem/analysis/hypothesis blocks, including colored marginal continuations; do not flatten them into isolated observations. Apply explicit author legends; color and arrows alone do not determine roles.
 5. Determine template mode. Unmarked templates remain strict. With `<!-- labnote:mode=guided -->`, remove `labnote:guide` comment blocks from the final note; retain fixed headings/fields and organize evidence into meaningful paragraphs, optional subheadings, lists or tables. Do not reproduce all suggested fields as empty form entries. Preserve literal numbers, units and original claim strength in either mode.
-6. Preserve a visible distinction between observations, calculations, interpretations, plans, and crossed-out material when the source makes that distinction. Do not upgrade a note into a stronger claim.
-7. Mark an ambiguous transcription at its exact location as `⟦U001⟧`, `⟦U002⟧`, and so on. Put the evidence, alternatives, and requested manual check in `uncertainties.md`.
+6. Preserve a visible distinction between observations, calculations, interpretations, plans, and crossed-out material when the source makes that distinction. When the author's legend says deletions are mistakes, leave struck text out of `final.md` and record only its location in `traceability.md`. Re-express a sketch that shows structure (grouping, assignment, flow, layout, timeline) as a Markdown table or Mermaid graph of its meaning, not as a prose walk-through of the drawing. Do not upgrade a note into a stronger claim.
+7. Mark an ambiguous transcription at its exact location as `⟦U001⟧`, `⟦U002⟧`, and so on. Put the type (`reading`, `relationship`, `source-check` or `deleted-only`), evidence, alternatives, and requested manual check in `uncertainties.md`. A glyph with an unexplained crossing stroke offers "possibly deleted" as an alternative.
 8. Write all required outputs from [references/io-contract.md](references/io-contract.md), then run:
 
    ```bash
@@ -50,15 +50,16 @@ Read [references/guided-template.md](references/guided-template.md) for template
      --template <template.md> \
      --final <output-dir>/final.md \
      --uncertainties <output-dir>/uncertainties.md \
-     --traceability <output-dir>/traceability.md
+     --traceability <output-dir>/traceability.md \
+     --profile <labnote-profile.md>   # when a profile was applied
    ```
 
 9. Resolve structural errors and perform a semantic completeness check: every source block accounted for, parent-child relationships retained, all plans and statuses included, every problem and hypothesis preserved, and only source-supported links between them. A passing script is not proof of semantic completeness. Report remaining uncertainties; do not resolve them by guessing.
-10. For author feedback, preserve the first-pass output. Create a new revision, record the exact correction and source, update only supported claims and affected evidence, and revalidate. Do not count your own revised output as independently verified ground truth.
+10. For author feedback, preserve the first-pass output. Create a new revision, record the exact correction and source, update only supported claims and affected evidence, and revalidate. Do not count your own revised output as independently verified ground truth. When the author confirms a reusable legend, offer to append it to the author profile.
 
 ## Completion standard
 
-Complete only when every source page has been inspected, the final document follows the supplied template, blank fields remain genuinely blank, uncertainty IDs are synchronized, and traceability covers confirmed, uncertain, crossed-out, and unmapped material.
+Complete only when every source page has been inspected, the final document follows the supplied template, blank fields remain genuinely blank, uncertainty IDs are synchronized, and traceability covers confirmed, uncertain, crossed-out (or, under an omit legend, deletion locations), and unmapped material.
 
 ## Recording Defects
 

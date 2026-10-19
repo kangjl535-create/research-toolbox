@@ -14,7 +14,7 @@ Keep required major headings in order. Within their bodies, use only relevant, s
 
 Invoke the validator with `--run-date YYYY-MM-DD` to compare that field with the recorded run date. Without the flag it checks ISO-date syntax, not correspondence to a real run. A template lacking the directive may still have its date filled when the user requests it, but automatic validation does not guess field names.
 
-Keep author-specific legends in per-run `user_context` or a local profile with attribution. For example a particular author may define √ as completed that day, × as not completed that day, black as theoretical quantity and blue as actual quantity. Apply that confirmed legend to the authorized records; do not convert it into a universal assumption for other users.
+Keep author-specific legends in the author profile ([author-profile.md](author-profile.md)) or, for one run, in `user_context`, with attribution. For example a particular author may define √ as completed that day, × as not completed that day, black as theoretical quantity and blue as actual quantity. Apply that confirmed legend to the authorized records; do not convert it into a universal assumption for other users.
 
 ## Preserve meaning before rearranging
 
