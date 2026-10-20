@@ -1,12 +1,15 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$ZipPath,
-    [string]$SourcePath
+    [string]$SourcePath,
+    [string]$GitRevision
 )
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+$latin1 = [System.Text.Encoding]::GetEncoding(28591)
+if ($GitRevision -and -not $SourcePath) { throw '-GitRevision requires -SourcePath, the skill directory in the Git checkout.' }
 
 function Test-IgnoredSkillFile {
     param([Parameter(Mandatory)][string]$RelativePath)
@@ -18,12 +21,48 @@ function Test-IgnoredSkillFile {
     return $leaf -in @('.DS_Store', 'Thumbs.db') -or $leaf -match '(?i)\.(pyc|pyo|tmp)$'
 }
 
-function Get-StreamSha256 {
-    param([Parameter(Mandatory)][System.IO.Stream]$Stream)
+function Read-EntryBytes {
+    param([Parameter(Mandatory)]$Entry)
 
+    $stream = $Entry.Open()
+    try {
+        $memory = New-Object System.IO.MemoryStream
+        $stream.CopyTo($memory)
+        return ,$memory.ToArray()
+    }
+    finally { $stream.Dispose() }
+}
+
+# Directory comparison reads CRLF as LF in text files (no NUL byte), so a ZIP of committed LF
+# bytes also matches a synchronized source edited with CRLF. Binary files compare byte for byte.
+function Get-ComparableDigest {
+    param([byte[]]$Bytes)
+
+    if ([Array]::IndexOf($Bytes, [byte]0) -lt 0) { $Bytes = $latin1.GetBytes($latin1.GetString($Bytes).Replace("`r`n", "`n")) }
     $sha = [System.Security.Cryptography.SHA256]::Create()
-    try { return ([BitConverter]::ToString($sha.ComputeHash($Stream))).Replace('-', '') }
+    try { return ([BitConverter]::ToString($sha.ComputeHash($Bytes))).Replace('-', '') }
     finally { $sha.Dispose() }
+}
+
+function Get-GitBlobId {
+    param([byte[]]$Bytes, [int]$IdLength = 40)
+
+    $header = [System.Text.Encoding]::ASCII.GetBytes("blob $($Bytes.Length)`0")
+    $algorithm = if ($IdLength -eq 64) { [System.Security.Cryptography.SHA256]::Create() } else { [System.Security.Cryptography.SHA1]::Create() }
+    try {
+        $algorithm.TransformBlock($header, 0, $header.Length, $null, 0) | Out-Null
+        $algorithm.TransformFinalBlock($Bytes, 0, $Bytes.Length) | Out-Null
+        return ([BitConverter]::ToString($algorithm.Hash)).Replace('-', '').ToLowerInvariant()
+    }
+    finally { $algorithm.Dispose() }
+}
+
+function Invoke-Git {
+    param([Parameter(Mandatory)][string]$WorkingDirectory, [Parameter(Mandatory)][string[]]$Arguments)
+
+    $output = & git -C $WorkingDirectory -c core.quotePath=false @Arguments
+    if ($LASTEXITCODE -ne 0) { throw "git $($Arguments -join ' ') failed with exit code $LASTEXITCODE." }
+    if ($null -ne $output) { $output }
 }
 
 $zipFullPath = [System.IO.Path]::GetFullPath($ZipPath)
@@ -127,20 +166,40 @@ try {
         }
 
         $sourceNames = New-Object System.Collections.Generic.List[string]
-        foreach ($file in $sourceFiles) {
-            $relative = $file.FullName.Substring($sourceRoot.Length).TrimStart('\', '/').Replace('\', '/')
-            $sourceNames.Add($relative)
-            if (-not $entryByName.ContainsKey($relative)) {
-                $errors.Add("Source file missing from ZIP: $relative")
-                continue
+        if ($GitRevision) {
+            # The ZIP must hold exactly the committed files: every entry's Git blob ID equals the tree's.
+            $repositoryRoot = [string](Invoke-Git -WorkingDirectory $sourceRoot -Arguments @('rev-parse', '--show-toplevel'))
+            $prefix = [string](Invoke-Git -WorkingDirectory $sourceRoot -Arguments @('rev-parse', '--show-prefix'))
+            foreach ($line in @(Invoke-Git -WorkingDirectory $repositoryRoot -Arguments @('ls-tree', '-r', "$GitRevision`:$prefix"))) {
+                $match = [regex]::Match($line, '^(\d{6}) (\w+) ([0-9a-f]{40,64})\t(.+)$')
+                if (-not $match.Success) { $errors.Add("Unexpected git ls-tree output: $line"); continue }
+                $relative = $match.Groups[4].Value
+                if ($match.Groups[2].Value -ne 'blob' -or $match.Groups[1].Value -eq '120000') { $errors.Add("Git tree entry is not a regular file: $relative"); continue }
+                $sourceNames.Add($relative)
+                if (-not $entryByName.ContainsKey($relative)) {
+                    $errors.Add("Committed file missing from ZIP: $relative")
+                    continue
+                }
+                $blobId = $match.Groups[3].Value
+                $entryId = Get-GitBlobId -Bytes (Read-EntryBytes -Entry $entryByName[$relative]) -IdLength $blobId.Length
+                if ($entryId -ne $blobId) { $errors.Add("ZIP content differs from the Git tree: $relative") }
             }
-            $sourceHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
-            $stream = $entryByName[$relative].Open()
-            try { $entryHash = Get-StreamSha256 -Stream $stream }
-            finally { $stream.Dispose() }
-            if ($sourceHash -ne $entryHash) { $errors.Add("ZIP content differs from source: $relative") }
+            foreach ($extra in @($archiveSourceNames | Where-Object { $_ -notin $sourceNames })) { $errors.Add("ZIP contains a file not in the Git tree: $extra") }
         }
-        foreach ($extra in @($archiveSourceNames | Where-Object { $_ -notin $sourceNames })) { $errors.Add("ZIP contains a file not present in source: $extra") }
+        else {
+            foreach ($file in $sourceFiles) {
+                $relative = $file.FullName.Substring($sourceRoot.Length).TrimStart('\', '/').Replace('\', '/')
+                $sourceNames.Add($relative)
+                if (-not $entryByName.ContainsKey($relative)) {
+                    $errors.Add("Source file missing from ZIP: $relative")
+                    continue
+                }
+                $sourceHash = Get-ComparableDigest -Bytes ([System.IO.File]::ReadAllBytes($file.FullName))
+                $entryHash = Get-ComparableDigest -Bytes (Read-EntryBytes -Entry $entryByName[$relative])
+                if ($sourceHash -ne $entryHash) { $errors.Add("ZIP content differs from source: $relative") }
+            }
+            foreach ($extra in @($archiveSourceNames | Where-Object { $_ -notin $sourceNames })) { $errors.Add("ZIP contains a file not present in source: $extra") }
+        }
     }
 }
 finally {
@@ -156,4 +215,5 @@ if ($errors.Count -gt 0) { throw ("Skill release validation failed:`n- " + ($err
     fileCount = $fileEntries.Count
     sha256 = (Get-FileHash -LiteralPath $zipFullPath -Algorithm SHA256).Hash
     sourceMatched = [bool]$SourcePath
+    gitTreeMatched = [bool]$GitRevision
 }

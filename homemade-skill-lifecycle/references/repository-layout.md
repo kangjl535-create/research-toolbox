@@ -57,3 +57,5 @@ example-skill-v1.2.3.zip
 ```
 
 Do not include tests, repository tools, release records, caches, credentials, or unrelated skills. A flat archive is acceptable only when the target installer requires it and validation still finds exactly one root `SKILL.md`.
+
+Build a published ZIP from the committed Git tree (`Build-HomemadeSkillRelease.ps1 -GitRevision`), so it holds the same bytes as the tag and the installed copy, whatever line endings the synchronized source uses.

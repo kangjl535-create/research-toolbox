@@ -50,7 +50,10 @@ Run the system `quick_validate.py` when available, then run behavior tests that 
 
 ```powershell
 & "<skill-directory>\scripts\Build-HomemadeSkillRelease.ps1" `
-  -SkillPath "<source-skill>" -Version "1.2.3" -OutputDirectory "<dist>"
+  -SkillPath "<checkout-skill>" -GitRevision "<commit-or-tree>" -Version "1.2.3" -OutputDirectory "<dist>"
+
+& "<skill-directory>\scripts\Test-HomemadeSkillRelease.ps1" `
+  -ZipPath "<zip>" -SourcePath "<checkout-skill>" -GitRevision HEAD
 
 & "<skill-directory>\scripts\Test-HomemadeSkillRepository.ps1" `
   -RepositoryPath "<git-checkout>"
@@ -61,11 +64,13 @@ Run the system `quick_validate.py` when available, then run behavior tests that 
 
 Require exactly one `SKILL.md` in each release ZIP. Prefer one top-level directory named after the skill with `SKILL.md` directly inside it. Require archive content to match the reviewed source and reject unsafe paths or likely credentials.
 
+Build published ZIPs from the Git tree (`-GitRevision`), so they hold the committed bytes that the tag, the distribution and installers serve. A build from a directory packs that directory's bytes, which on Windows may have CRLF line endings. With `-GitRevision`, the release check requires the exact committed bytes. With only `-SourcePath`, it reads CRLF as LF in text files, and so does `Compare-InstalledSkill.ps1`. The comparison also accepts the distribution additions `LICENSE`, `UPSTREAM_SOURCE.md` and `KNOWN_ISSUES.md`. With `-AllowedExtraFile @()` it compares the synchronized repository tree with the checkout.
+
 ## Publish And Hand Off
 
-Read [references/github-release.md](references/github-release.md) before GitHub publication. Confirm authentication, clean scope, exact staged files, tests, ZIP digest, and CI. GitHub publication does not authorize CCSwitch application control.
+Read [references/github-release.md](references/github-release.md) before GitHub publication. Confirm authentication, clean scope, exact staged files, tests, ZIP digest, and CI. GitHub publication does not authorize CCSwitch application control. The synchronized source stays authoritative for the whole repository tree, records included. A release is complete only when that tree and the checkout compare equal.
 
-CCSwitch may install homemade skills from a curated distribution repository instead of the development repository. After the upstream release succeeds, follow [references/distribution-repository.md](references/distribution-repository.md) to update the distributed copy; a release left only in the development repository never appears as a CCSwitch update.
+CCSwitch may install homemade skills from a curated distribution repository instead of the development repository. After the upstream release succeeds, follow [references/distribution-repository.md](references/distribution-repository.md) to update the distributed copy. `Update-DistributedSkill.ps1` performs its deterministic steps. A release left only in the development repository never appears as a CCSwitch update.
 
 After publication, follow [references/ccswitch.md](references/ccswitch.md). Default to a manual handoff that reports the skill name, version, full repository URL, branch, category, tag, release, ZIP digest, CI result, and whether the user should add the repository or check for updates. Resume recordkeeping after the user reports the result.
 
