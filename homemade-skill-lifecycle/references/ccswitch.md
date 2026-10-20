@@ -21,7 +21,7 @@ After a successful GitHub release and, when CCSwitch uses a curated distribution
 
 Use the full repository URL because tested CCSwitch builds may reject `owner/name` shorthand.
 
-Explain that a ZIP installation has a `local:` source and cannot receive repository updates. For first repository adoption, the user may need to remove the local-source installation once and reinstall from the repository listing. Ask the user to report success or the exact error; update records only after that report.
+Explain that a ZIP installation has a `local:` source and cannot receive repository updates. For first repository adoption, the user may need to remove the local-source installation once and reinstall from the repository listing. Ask the user to report success or the exact error. After a reported success, compare the installed copy with the authoritative source using `Compare-InstalledSkill.ps1`. It reads CRLF as LF in text files and accepts the distribution additions. Update records only after that report.
 
 ## Autonomous Verification
 
@@ -30,7 +30,7 @@ When explicitly authorized, record the pre-update repository fields, content has
 - the expected skill and only that skill is offered for update;
 - repository owner, name, branch, and application enablement are preserved;
 - content hash changes and timestamp advances;
-- installed files match the authoritative source;
+- installed files match the authoritative source (`Compare-InstalledSkill.ps1`);
 - the observable patch content is present;
 - the interface returns to zero pending updates.
 

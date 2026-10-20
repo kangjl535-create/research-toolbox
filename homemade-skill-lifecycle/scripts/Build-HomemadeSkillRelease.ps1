@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory)][string]$SkillPath,
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$')][string]$Version,
     [Parameter(Mandatory)][string]$OutputDirectory,
-    [ValidateSet('Wrapped', 'Flat')][string]$Layout = 'Wrapped'
+    [ValidateSet('Wrapped', 'Flat')][string]$Layout = 'Wrapped',
+    [string]$GitRevision
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,6 +21,14 @@ function Test-IgnoredSkillFile {
     }
     $leaf = $segments[-1]
     return $leaf -in @('.DS_Store', 'Thumbs.db') -or $leaf -match '(?i)\.(pyc|pyo|tmp)$'
+}
+
+function Invoke-Git {
+    param([Parameter(Mandatory)][string]$WorkingDirectory, [Parameter(Mandatory)][string[]]$Arguments)
+
+    $output = & git -C $WorkingDirectory -c core.quotePath=false @Arguments
+    if ($LASTEXITCODE -ne 0) { throw "git $($Arguments -join ' ') failed with exit code $LASTEXITCODE." }
+    if ($null -ne $output) { $output }
 }
 
 $sourceRoot = [System.IO.Path]::GetFullPath($SkillPath).TrimEnd('\', '/')
@@ -40,35 +49,49 @@ if (-not (Test-Path -LiteralPath $outputRoot -PathType Container)) { New-Item -I
 $destination = Join-Path $outputRoot "$skillName-v$Version.zip"
 if (Test-Path -LiteralPath $destination) { throw "Release already exists and will not be overwritten: $destination" }
 $temporary = Join-Path $outputRoot (".$skillName-v$Version-" + [guid]::NewGuid().ToString('N') + '.tmp')
-
-$files = @(Get-ChildItem -LiteralPath $sourceRoot -Recurse -Force -File | Where-Object {
-    $relative = $_.FullName.Substring($sourceRoot.Length).TrimStart('\', '/')
-    -not (Test-IgnoredSkillFile -RelativePath $relative)
-})
-if ($files.Count -eq 0) { throw "No release files found under: $sourceRoot" }
+$sourceTree = $null
 
 try {
-    $fileStream = [System.IO.File]::Open($temporary, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
-    try {
-        $archive = [System.IO.Compression.ZipArchive]::new($fileStream, [System.IO.Compression.ZipArchiveMode]::Create, $true)
-        try {
-            foreach ($file in $files) {
-                $relative = $file.FullName.Substring($sourceRoot.Length).TrimStart('\', '/').Replace('\', '/')
-                $entryName = if ($Layout -eq 'Wrapped') { "$skillName/$relative" } else { $relative }
-                $entry = $archive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
-                $entry.LastWriteTime = $file.LastWriteTime
-                $input = [System.IO.File]::OpenRead($file.FullName)
-                $output = $entry.Open()
-                try { $input.CopyTo($output) }
-                finally { $output.Dispose(); $input.Dispose() }
-            }
-        }
-        finally { $archive.Dispose() }
+    if ($GitRevision) {
+        # Pack the committed bytes of the skill's Git tree. Line-ending conversion is disabled so
+        # the ZIP equals what the tag, the distribution, and installers serve.
+        $repositoryRoot = [string](Invoke-Git -WorkingDirectory $sourceRoot -Arguments @('rev-parse', '--show-toplevel'))
+        $prefix = [string](Invoke-Git -WorkingDirectory $sourceRoot -Arguments @('rev-parse', '--show-prefix'))
+        $sourceTree = [string](Invoke-Git -WorkingDirectory $repositoryRoot -Arguments @('rev-parse', '--verify', "$GitRevision`:$prefix"))
+        $archiveArguments = @('-c', 'core.autocrlf=false', 'archive', '--format=zip', '-o', $temporary)
+        if ($Layout -eq 'Wrapped') { $archiveArguments += "--prefix=$skillName/" }
+        Invoke-Git -WorkingDirectory $repositoryRoot -Arguments ($archiveArguments + $sourceTree) | Out-Null
     }
-    finally { $fileStream.Dispose() }
+    else {
+        $files = @(Get-ChildItem -LiteralPath $sourceRoot -Recurse -Force -File | Where-Object {
+            $relative = $_.FullName.Substring($sourceRoot.Length).TrimStart('\', '/')
+            -not (Test-IgnoredSkillFile -RelativePath $relative)
+        })
+        if ($files.Count -eq 0) { throw "No release files found under: $sourceRoot" }
+
+        $fileStream = [System.IO.File]::Open($temporary, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        try {
+            $archive = [System.IO.Compression.ZipArchive]::new($fileStream, [System.IO.Compression.ZipArchiveMode]::Create, $true)
+            try {
+                foreach ($file in $files) {
+                    $relative = $file.FullName.Substring($sourceRoot.Length).TrimStart('\', '/').Replace('\', '/')
+                    $entryName = if ($Layout -eq 'Wrapped') { "$skillName/$relative" } else { $relative }
+                    $entry = $archive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+                    $entry.LastWriteTime = $file.LastWriteTime
+                    $input = [System.IO.File]::OpenRead($file.FullName)
+                    $output = $entry.Open()
+                    try { $input.CopyTo($output) }
+                    finally { $output.Dispose(); $input.Dispose() }
+                }
+            }
+            finally { $archive.Dispose() }
+        }
+        finally { $fileStream.Dispose() }
+    }
 
     $validator = Join-Path $PSScriptRoot 'Test-HomemadeSkillRelease.ps1'
-    $validation = & $validator -ZipPath $temporary -SourcePath $sourceRoot
+    if ($GitRevision) { $validation = & $validator -ZipPath $temporary -SourcePath $sourceRoot -GitRevision $GitRevision }
+    else { $validation = & $validator -ZipPath $temporary -SourcePath $sourceRoot }
     Move-Item -LiteralPath $temporary -Destination $destination
 
     [pscustomobject]@{
@@ -78,6 +101,7 @@ try {
         fileCount = $validation.fileCount
         layout = $validation.layout
         sha256 = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
+        sourceTree = $sourceTree
     }
 }
 finally {
