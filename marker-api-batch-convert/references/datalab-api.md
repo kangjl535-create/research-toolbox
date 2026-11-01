@@ -1,15 +1,31 @@
 # Datalab Convert API Notes
 
-Checked against the Datalab conversion documentation on 2026-10-04: https://documentation.datalab.to/docs/recipes/conversion/conversion-api-overview
+Checked against the Datalab conversion documentation on 2026-11-01: https://documentation.datalab.to/docs/recipes/marker/conversion-api-overview (first checked 2026-10-04). `/api/v1/convert` is the current endpoint; the older `/api/v1/marker` is deprecated and not used.
 
 ## Requests
 
 - Submit: `POST https://www.datalab.to/api/v1/convert`, header `X-API-Key`, multipart `file`. Response: `success`, `request_id`.
 - Poll: `GET /api/v1/convert/{request_id}` with the same header until `status` is `complete`. The result carries `markdown`, `images` (`{filename: base64}`), `page_count`, `parse_quality_score` (0-5), `cost_breakdown.final_cost_cents`, `metadata.failed_pages`. An EU-region `result_url` is downloaded without the key, only from a public HTTPS host.
-- Fixed parameters: `output_format=markdown`, `paginate=false` (no page delimiters, like MinerU), `disable_image_extraction=false`, `disable_image_captions=true`. `mode` is `fast`, `balanced` (default here), or `accurate`.
+- Fixed parameters: `output_format=markdown,json`, `paginate=false` (no page delimiters, like MinerU), `disable_image_extraction=false`, `disable_image_captions=true`. `mode` is `fast`, `balanced` (default here), or `accurate`. Datalab also offers `lite`, which extracts no figures.
 - Limits: 200 MB per file. Large page counts are allowed by the service; the skill's `--max-pages` (default 200) is a local cost guard.
 - Not used: `merge_cross_page` merges only across pages and adds a variable charge; the observed split sentences were column breaks within a page, which local normalization rejoins. Paid extras such as chart understanding generate content and stay off.
 - `parse_quality_score` is often still null when the job completes and appears later; the report records what was returned at completion.
+
+## Figure Text
+
+Datalab's changelog for 2026-10-15 announces "structured figure descriptions" in fast, balanced and accurate mode. After that change, converted papers carried a generated description under most figures: prose with axis ranges, curve shapes and readings, some of them invented. Some also carried invented labels such as "**Legend:**" and many short lines read from inside the figure.
+
+Tests on 2026-11-01 showed:
+
+- `disable_image_captions=true` did not stop these descriptions.
+- `fence_synthetic_captions=true` did not wrap them in HTML comments.
+- `output_format=markdown,json` returned the same Markdown at the same price: 0.3 US cents per page in balanced mode.
+
+In the JSON, each figure is a leaf block whose `html` is the `<img>` followed by `<p class="img-text">` paragraphs. These hold the description and the figure's own labels; captions and body text are separate `Caption`/`Text` blocks.
+
+At download, only these paragraphs and their image names are kept in the payload (`figure_text`); the rest of the JSON (about 130 KB per page) is discarded. Before normalization, each image's following Markdown paragraphs are removed one by one while each matches the figure's next img-text paragraph, compared without markup, math delimiters or whitespace. The first paragraph that does not match ends the removal for that figure, and the paragraphs not removed are counted as `figureTextUnmatched`.
+
+On real papers this removed 92 paragraphs (4 diagrams) and 78 paragraphs (14 plots) with none unmatched. `possibleDescriptionsLeft` counts description-like paragraphs still directly after an image. That is a warning for format changes; such paragraphs are never removed.
 
 ## Failure Classification
 
@@ -31,7 +47,7 @@ Error messages are shortened and stripped of URLs before they reach a report.
 Everything machine-local is under `%LOCALAPPDATA%\AI-Config\marker-api-batch-convert\`, never beside papers or in OneDrive:
 
 - `checkpoints\<key>.json`: source path and hash, parameters, status (`submitting`, `submitted`, `downloaded`, `failed`), request id. The key hashes the PDF path and content, so a changed PDF never reuses an old job. A resumed job keeps the parameters it was submitted with; if the current run asked for others, the item gets a `notice`.
-- `payloads\<key>.json`: the downloaded result until publication. Checkpoint and payload are deleted after a successful publication.
+- `payloads\<key>.json`: the downloaded result until publication: Markdown, images, page count, cost, quality score, failed pages and `figure_text`. Payloads saved by 0.1.x have no `figure_text`; their figure text is not removed, and the item gets a notice. Checkpoint and payload are deleted after a successful publication.
 - `reports\marker-<action>-<time>.json`: one report per run.
 - `convert.lock`: one convert run per computer at a time.
 

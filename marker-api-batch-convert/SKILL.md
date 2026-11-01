@@ -5,7 +5,7 @@ description: Convert authorized local or Zotero-resolved PDFs to same-directory 
 
 # Marker API Batch Convert
 
-Release: **0.1.0**. One Python script, run with the shared science environment from the task's working directory:
+Release: **0.2.0**. One Python script, run with the shared science environment from the task's working directory:
 
 ```powershell
 $run = "$env:LOCALAPPDATA\AI-Config\bin\run-science.ps1"
@@ -25,17 +25,19 @@ If `run-science.ps1` is blocked (execution policy, sandbox), call the same inter
 
 Only PDFs with neither `Paper.md` nor `Paper.assets/` beside them are uploaded. The result is `Paper.pdf` (unchanged), `Paper.md`, and `Paper.assets/` with the referenced images: the same layout as MinerU, read directly by `zotero-ai-reading`. The first Markdown line is a `<!-- marker-batch-convert {...} -->` marker with the source hash, asset digest, mode, request id, cost, and normalization counts.
 
-Defaults: `--mode balanced`, 4 PDFs in parallel (`--workers`, at most 8; batch time scales with it), PDFs over 200 pages skipped (`--max-pages`). Datalab's generated image descriptions are always disabled: they inserted invented values and tables into the text.
+Defaults: `--mode balanced`, 4 PDFs in parallel (`--workers`, at most 8; batch time scales with it), PDFs over 200 pages skipped (`--max-pages`).
+
+Datalab's figure text is removed. Since its October 2026 model, `disable_image_captions` no longer stops the generated figure descriptions, which contain invented values. The script therefore also requests Datalab's JSON block output. Directly after each image, it deletes the paragraphs Datalab marks as figure text: the description and the labels read from inside the figure, which the image still shows. The printed caption stays. The marker counts `figureTextRemoved`, `figureTextUnmatched` and `possibleDescriptionsLeft`. The item gets a `notice` when either of the last two is non-zero, or when a job submitted by 0.1.x is resumed. Then check the lines after those images before relying on them.
 
 | Mode | List price per 1,000 pages | Measured (2026-10-04) |
 |---|---|---|
-| `balanced` (default) | 4 USD | 12-page born-digital paper in 39 s Datalab runtime: body, table, equations, figures correct; 4 reference-list slips. |
+| `balanced` (default) | 4 USD | 12-page born-digital paper in 39 s Datalab runtime: body, table, equations, figures correct; 4 reference-list slips. On an equation-dense 11-page paper (2026-11-01), 25 of 50 equations were wrong, mostly lowercased subscripts (k_P → k_p); `accurate` got 8 wrong. |
 | `accurate` | 10 USD | Same paper in 114 s, those slips fixed. Scanned 8-page and historic 4-page papers in 46 s and 29 s. Inline math may come as `<sub>`/`<sup>`. |
 | `fast` | 4 USD | Not faster and clearly worse (names, reference numbers, swapped primes). Do not use. |
 
-Use `accurate` when the user asks, or for scanned, old, or table-dense PDFs; otherwise `balanced`. A job resumed from a checkpoint keeps its original mode; the report then carries a `notice`.
+Use `accurate` when the user asks, or for scanned, old, table-dense or equation-dense PDFs; otherwise `balanced`. A job resumed from a checkpoint keeps its original mode; the report then carries a `notice`.
 
-The published Markdown is normalized for MinerU-compatible readers, representation only: bold caption labels (`**Fig. 1.**`) are unbolded; a trailing printed number `\quad (n)` in display math, also after leader dots (`\quad \dots (A-1)`), becomes `\tag{n}`; pipe tables become one-line HTML `<table>`s with cell formatting as HTML (merged cells stay as blank cells); and a sentence split into two paragraphs by a column or page break is rejoined (a line-break hyphen before a lowercase continuation is dropped). Nothing else is changed.
+Apart from removing the figure text, the published Markdown is normalized for MinerU-compatible readers, representation only: bold caption labels (`**Fig. 1.**`) are unbolded; a trailing printed number `\quad (n)` in display math, also after leader dots (`\quad \dots (A-1)`), becomes `\tag{n}`; pipe tables become one-line HTML `<table>`s with cell formatting as HTML (merged cells stay as blank cells); and a sentence split into two paragraphs by a column or page break is rejoined (a line-break hyphen before a lowercase continuation is dropped). Nothing else is changed.
 
 Conversion is good but not exact. Real tests found a dropped prime in an equation, a lost table footnote mark, and misread author names or initials, also in `accurate` mode. For derivations, table values, or citations, check the key content against the PDF.
 

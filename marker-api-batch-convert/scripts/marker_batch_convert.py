@@ -25,13 +25,14 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
+from html import unescape
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 
 import requests
 from PIL import Image
 
-SKILL_VERSION = "0.1.0"
+SKILL_VERSION = "0.2.0"
 DEFAULT_API = "https://www.datalab.to/api/v1"
 MARKER_RE = re.compile(r"<!--\s*marker-batch-convert\s+(\{.*\})\s*-->")
 MINERU_RE = re.compile(r"<!--\s*mineru-batch-convert\s+(\{.*\})\s*-->")
@@ -336,6 +337,84 @@ def join_split_paragraphs(md):
     return "\n\n".join(out), joins
 
 
+# ---------- figure text (Datalab's generated descriptions and text read from inside figures) ----------
+
+IMG_TEXT = re.compile(r"<p\b[^>]*\bclass\s*=\s*[\"']img-text[\"'][^>]*>(.*?)</p>", re.I | re.S)
+IMG_SRC = re.compile(r"<img\b[^>]*?\bsrc\s*=\s*[\"']([^\"']+)[\"']", re.I)
+DESCRIPTION_RE = re.compile(
+    r"^(?:This|The|A|An)\s+(?:[\w-]+\s+){0,3}(?:diagram|plot|graph|chart|figure|image|illustration|schematic|"
+    r"photograph|micrograph|map|flowchart|drawing)\b.{0,120}?\b(?:shows?|showing|illustrates?|depicts?|displays?|presents?)\b",
+    re.I | re.S)
+
+
+def figure_text(doc):
+    """[{images, paragraphs}] for every leaf block of Datalab's JSON output that holds an image and img-text
+    paragraphs, or None when the result has no JSON. Only this is kept from the (large) JSON output."""
+    if isinstance(doc, str):
+        try:
+            doc = json.loads(doc)
+        except ValueError:
+            return None
+    if not isinstance(doc, dict):
+        return None
+    found = []
+
+    def walk(block):
+        children = [c for c in block.get("children") or [] if isinstance(c, dict)]
+        if children:  # a page's own HTML repeats its children's; only leaves are used
+            for c in children:
+                walk(c)
+            return
+        html = block.get("html") or ""
+        images, paragraphs = IMG_SRC.findall(html), IMG_TEXT.findall(html)
+        if images and paragraphs:
+            found.append({"images": images, "paragraphs": paragraphs})
+
+    walk(doc)
+    return found
+
+
+def text_key(s):
+    """Markup-free comparison key of one paragraph, from block HTML or from document Markdown."""
+    s = unescape(re.sub(r"<[^>]+>", "", s))
+    s = re.sub(r"\\(?=[^A-Za-z])", "", s)
+    return re.sub(r"[\s$*_]+", "", s)
+
+
+def strip_figure_text(md, figures):
+    """Remove the paragraphs Datalab writes under an image: its generated description and the text it read from inside
+    the figure (both remain visible in the image). A paragraph is removed only if it directly follows that image, or a
+    paragraph just removed, and matches the figure's next img-text paragraph; anything else stays and is counted.
+    Returns (Markdown, removed, unmatched); the counts are None when the job carried no figure information."""
+    if figures is None:
+        return md, None, None
+    blocks = md.split("\n\n")
+    drop, removed, unmatched = set(), 0, 0
+    for fig in figures:
+        paragraphs = [p for p in fig.get("paragraphs") or [] if text_key(p)]
+        names = {unquote(n) for n in fig.get("images") or []}
+        at = next((i for i, b in enumerate(blocks) if names & {unquote(t) for t in image_targets(b)}), None)
+        if at is None:
+            unmatched += len(paragraphs)
+            continue
+        j = at + 1
+        for k, p in enumerate(paragraphs):
+            if j < len(blocks) and j not in drop and text_key(blocks[j]) == text_key(p):
+                drop.add(j)
+                removed += 1
+                j += 1
+            else:
+                unmatched += len(paragraphs) - k
+                break
+    return "\n\n".join(b for i, b in enumerate(blocks) if i not in drop), removed, unmatched
+
+
+def descriptions_left(md):
+    """Paragraphs directly after an image that read like a generated description (a warning, never removed)."""
+    blocks = md.split("\n\n")
+    return sum(1 for i in range(1, len(blocks)) if image_targets(blocks[i - 1]) and DESCRIPTION_RE.match(blocks[i].strip()))
+
+
 def normalize(md):
     md, captions = unbold_captions(md)
     md, tags = tag_equations(md)
@@ -589,6 +668,7 @@ def poll(key, ck, ctx):
                 raise Fail("Datalab returned empty Markdown")
             payload = {k: obj.get(k) for k in ("markdown", "images", "page_count", "parse_quality_score", "cost_breakdown", "runtime")}
             payload["failed_pages"] = (obj.get("metadata") or {}).get("failed_pages")
+            payload["figure_text"] = figure_text(obj.get("json"))
             ctx.store.save_payload(key, payload)
             ck.update(status="downloaded", completedUtc=now(), waitSeconds=round(time.monotonic() - started, 1),
                       polls=polls, throttled=throttled)
@@ -609,7 +689,17 @@ def publish(pdf, key, ck, ctx):
         ctx.store.clear(key)
         raise Fail("PDF changed during conversion; nothing written")
     payload = ctx.store.load_payload(key)
-    markdown, norm = normalize(payload["markdown"].replace("\r\n", "\n"))
+    markdown, removed, unmatched = strip_figure_text(payload["markdown"].replace("\r\n", "\n"), payload.get("figure_text"))
+    markdown, norm = normalize(markdown)
+    left = descriptions_left(markdown)
+    norm.update(figureTextRemoved=removed, figureTextUnmatched=unmatched, possibleDescriptionsLeft=left)
+    notices = []
+    if removed is None:
+        notices.append("job submitted without Datalab's JSON output (earlier skill version); figure text was not removed")
+    elif unmatched:
+        notices.append(f"{unmatched} figure-text paragraph(s) could not be located and stay in the Markdown")
+    if left:
+        notices.append(f"{left} paragraph(s) after an image read like a generated figure description; check them")
     decoded = decode_images(payload.get("images") or {})
     markdown, used = link_images(markdown, list(decoded), assets_path.name)
     cost = (payload.get("cost_breakdown") or {}).get("final_cost_cents")
@@ -653,7 +743,8 @@ def publish(pdf, key, ck, ctx):
             raise Review(f"could not publish beside the PDF ({type(e).__name__}); nothing kept")
         raise
     ctx.store.clear(key)
-    return {"markdown": str(md_path), "assetCount": len(used), "unreferencedImagesDropped": len(decoded) - len(used),
+    return {**({"notice": "; ".join(notices)} if notices else {}),
+            "markdown": str(md_path), "assetCount": len(used), "unreferencedImagesDropped": len(decoded) - len(used),
             "pages": payload.get("page_count"), "costCents": cost, "parseQualityScore": payload.get("parse_quality_score"),
             "failedPages": payload.get("failed_pages"), "normalizations": norm, "requestId": ck.get("requestId"),
             "timing": {"uploadSeconds": ck.get("uploadSeconds"), "serverRuntimeSeconds": round(payload.get("runtime") or 0, 1) or None,
@@ -698,7 +789,9 @@ def _process(pdf, ctx):
             ck = poll(key, ck, ctx)
         if ck["status"] != "downloaded":
             raise Review(f"checkpoint in state {ck.get('status')!r}; review")
-        return dict(row, status="Converted", **publish(pdf, key, ck, ctx))
+        result = publish(pdf, key, ck, ctx)
+        notices = [n for n in (row.pop("notice", None), result.pop("notice", None)) if n]
+        return dict(row, status="Converted", **result, **({"notice": "; ".join(notices)} if notices else {}))
     except AuthError as e:
         ctx.stop.set()
         return dict(row, status="Failed", reason=str(e))
@@ -781,7 +874,8 @@ def action_convert(args):
     try:
         ctx = Context()
         ctx.store = Store(root)
-        ctx.params = {"output_format": "markdown", "mode": args.mode, "paginate": "false",
+        # JSON is requested only to locate Datalab's figure text, which disable_image_captions no longer stops
+        ctx.params = {"output_format": "markdown,json", "mode": args.mode, "paginate": "false",
                       "disable_image_extraction": "false", "disable_image_captions": "true"}
         ctx.poll_timeout, ctx.max_pages, ctx.retry_uncertain = args.poll_timeout, args.max_pages, args.retry_uncertain
         ctx.stop = threading.Event()
