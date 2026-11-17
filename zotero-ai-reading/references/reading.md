@@ -2,7 +2,17 @@
 
 Read the whole MinerU Markdown, not just the abstract. To check something in the PDF (a garbled equation, a figure), extract or render only that page; opening the whole PDF costs tens of thousands of tokens. The note's metadata, abstract and author list come from Zotero through BibNotes; the agent writes only the annotations and the six fields. The user reads these notes to decide what to study closely and to find material for their own research.
 
-**The user's research:** the topic folders of the paper's note (`note_path` in `batch.json`, e.g. `…\Cerebral fluid transport\Exponential decay in tissue K measurement\…`) name the project the paper was collected for. Aim blue annotations, red opportunities and `Inspiration` at that project, and say concretely how the idea would serve it.
+**The user's research:** the topic folders of the paper's note (`note_path` in `batch.json`, e.g. `…\Cerebral fluid transport\Exponential decay in tissue K measurement\…`) name the project the paper was collected for. Aim blue annotations, red opportunities and `Inspiration` at that project, and say concretely how the idea would serve it. Only these: green, orange and yellow cover the paper for its own content, and the note is not filtered by the question of the task that asked for the reading.
+
+**The note is the paper's evidence record.** The user reads the notes to find important information and results instead of going back to the whole PDF every time, and later reviews are written from them. Keep in the annotations, their comments and the detail bullets, with page links, what such later use needs:
+- every classification, regime or limiting case the paper states, with its criterion or threshold and its source (the paper's own, or the cited work);
+- for each reported quantity: what exactly it is, the method, the material and conditions, the values and their range;
+- for each data figure or table: what is plotted against what, and where compiled data come from (author, year);
+- for each model: its assumptions, inputs and the range it was validated over;
+- the limitations the authors state;
+- in a review: which statements are the reviewers' own and which are reported from cited work.
+
+**Cover every main section.** Draw annotations from the whole paper (introduction, method, results, discussion, conclusion), and in a review from each of its sections, which are separate topics. `place` lists pages without any annotation: a section there left out needs a reason in your report.
 
 ## What to annotate (the user's colour meanings)
 
@@ -27,7 +37,7 @@ Coverage, not counting:
 
 ## Frames (image annotations)
 
-`{"kind": "figure"|"equation"|"table", "n": 7, "color": ..., "comment": "AI：..."}`, with `n` as printed: `7`, `"2.5"`, `"A1"`, `"12a"`, or a Roman table number such as `"IV"`. Frame key equations and conditions (usually orange) and key result figures and tables (usually yellow). A figure frame covers all its panels; name the panel the comment is about. Figures need MinerU's figure image in the Markdown, equations their printed number in the PDF (or `\tag{n}` in the Markdown), and tables a `Table n.` caption followed by the table. The script reports what it could not locate. When the Markdown garbles an important equation, frame it (the frame shows the PDF) instead of quoting it.
+`{"kind": "figure"|"equation"|"table", "n": 7, "color": ..., "comment": "AI：..."}`, with `n` as printed: `7`, `"2.5"`, `"A1"`, `"12a"`, or a Roman table number such as `"IV"`. Frame key equations and conditions (usually orange) and key result figures and tables (usually yellow). In a review, a figure or table that compiles a quantity across materials or studies is a key result: frame it in yellow, and say in the comment what is plotted against what and name its sources (author, year). A figure frame covers all its panels; name the panel the comment is about. Figures need MinerU's figure image in the Markdown, equations their printed number in the PDF (or `\tag{n}` in the Markdown), and tables a `Table n.` caption followed by the table. The script reports what it could not locate. When the Markdown garbles an important equation, frame it (the frame shows the PDF) instead of quoting it.
 
 ## The six fields
 
@@ -39,6 +49,14 @@ Coverage, not counting:
 - **Labels:** mark the agent's own analysis `AI 分析：` and suggestions `AI 建议／待验证：`; in `Gap`, keep the authors' stated limitations apart from the agent's.
 - **About the paper only:** notes on the reading process or the tools (what was read, page mapping, equations garbled by the conversion) go into the chat report, not the fields.
 - **Characters:** math with `$...$` is fine; write comparisons as math (`$L/D<1$`) or words, never a bare `<` in text.
+
+## Adding to a paper read before (`--update`)
+
+The paper already has annotations (AI-tagged or the user's) and usually a note, an AI draft or the user's own. Before writing anything, read that note (`note_path` in `batch.json`) and `<run>/<citekey>/existing-annotations.json` (every annotation on the PDF: who made it, colour, page, text, comment). Then read the whole Markdown again with the new task in mind, and look for what the earlier reading left out: whole sections, figures and tables, statements the new task needs.
+
+- **Annotations** are the main place for new content: highlight the original sentences and frame the figures, tables and equations, so they appear in the note's "Extracted Annotations" with their pictures and can be seen on the PDF. Do not repeat what is annotated already: `place` drops a new highlight or frame of which half or more lies under existing ones of the same kind (or under an earlier item of the same reading), and lists smaller overlaps (keep those only when they add something). A new point about an annotated sentence or figure goes into a field addition.
+- **`fields` holds only additions**, any subset of the six, each `{"text": ..., "details": [...]}` or a string: what is new relative to the note's fields, never a restatement of them. A reading written for a new or replaced note (for example under 0.3.1) must be rewritten this way first. `note` puts each below that field's existing text as `- **AI 补充（<date> · <task>）**：text` with the details nested. Leave a field out when there is nothing to add. A paper with no note yet needs all six fields, as a new note does.
+- The user's text stays as it is: do not correct or contradict it in an addition without saying so (`AI 分析：…与笔记中……不同，因为……`).
 
 ## Format
 

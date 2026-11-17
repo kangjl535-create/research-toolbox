@@ -3,9 +3,10 @@
 //
 // usage: node bibnotes_headless.js --plugin-dir <vault>/.obsidian/plugins/bibnotes --bbt-json <export.json>
 //          --vault <temp dir> --citekey <key> [--existing <note.md>] [--storage <dir with KEY/image.png>]
-//          [--add-note <annotation-note html>] [--keep-user-notes] [--settings <json of settings to try>]
+//          [--add-note <annotation-note html>] [--keep-user-notes] [--drop-saved-notes] [--settings <json of settings to try>]
 // Writes <temp vault>/out/<exportTitle>.md and prints JSON {output, notices}. With --existing, that note is copied
 // there first, so BibNotes merges into it as "Update Current Note" would (the user's save mode from data.json).
+// --drop-saved-notes leaves the item's saved Zotero notes out, so only the --add-note annotations are rendered.
 // Reads, never writes, main.js and data.json. Settings are changed in memory only (export folder, storage path).
 const Module = require("module");
 const fs = require("fs");
@@ -55,6 +56,7 @@ Module._load = function (req) { return req === "obsidian" ? stub : origLoad.appl
   // Non-annotation child notes need a browser DOM to convert; the user's template has no {{UserNotes}}.
   const isAnnotationNote = (n) => unescape(n.note).includes("<span class=") || unescape(n.note).includes('<a href="zotero://open-pdf/library/');
   if (!args["keep-user-notes"]) entry.notes = entry.notes.filter(isAnnotationNote);
+  if (args["drop-saved-notes"]) entry.notes = [];
   if (args["add-note"]) {
     const now = new Date().toISOString().replace(/\.\d+Z$/, "Z");
     entry.notes = entry.notes.concat([{ key: "UNSAVED1", itemType: "note", note: fs.readFileSync(args["add-note"], "utf8"),
