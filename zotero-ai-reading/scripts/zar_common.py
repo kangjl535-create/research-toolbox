@@ -57,6 +57,7 @@ class ZoteroWriter:
     def __init__(self, request=http, path=None, say=lambda m: print(m, flush=True)):
         self.request, self.path, self.say = request, pathlib.Path(path) if path else key_file(), say
         self.server_id, self.key, self.remember = None, None, False
+        self.reached = 0  # write requests that Zotero may have applied (answered 200, or cut off without an answer)
 
     def _server_id(self):
         s, h, _ = self.request("GET", "/api/")
@@ -95,7 +96,16 @@ class ZoteroWriter:
         self.say("write access granted" + ("" if self.remember else " for one write"))
 
     def _post(self, chunk):
-        return self.request("POST", "/api/users/0/items", chunk, {"Zotero-Server-ID": self.server_id, "Zotero-API-Key": self.key})
+        # 50 annotations can take Zotero longer than 30 s to save (feedback 2026-10-16: a timed-out request had been applied)
+        try:
+            s, h, b = self.request("POST", "/api/users/0/items", chunk, {"Zotero-Server-ID": self.server_id, "Zotero-API-Key": self.key},
+                                   timeout=300)
+        except Exception:
+            self.reached += 1  # no answer: Zotero may still have applied it
+            raise
+        if s == 200:  # any other status: Zotero refused the whole request
+            self.reached += 1
+        return s, h, b
 
     def post_items(self, entries):
         """Write all entries (at most MAX_WRITE per request); returns one (status, info) per entry: ("ok", saved JSON),
@@ -247,7 +257,8 @@ class Library:
                 return a, None
         if not pdfs:
             return None, "no PDF attachment"
-        return None, "no PDF attachment exists under the library root: " + "; ".join(a["path"] for a in pdfs)
+        return None, ("no PDF attachment exists under the library root (a broken file link in Zotero, or an attachment "
+                      "Better BibTeX still lists after it was removed): " + "; ".join(a["path"] for a in pdfs))
 
     def bbt_items_in_folder(self, folder_rel):
         """(entry, pdf attachment) pairs whose PDF lies directly in folder_rel (relative to the library root)."""
