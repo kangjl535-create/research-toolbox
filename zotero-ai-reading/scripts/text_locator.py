@@ -17,7 +17,7 @@ TRANS = {"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "
 WATERMARK = re.compile(r"Downloaded from|Terms and Conditions|individualUser|This article is protected by copyright"
                        r"|Wiley Online Library|for rules of use", re.I)
 TEXT_FLAGS = pymupdf.TEXT_PRESERVE_WHITESPACE | pymupdf.TEXT_MEDIABOX_CLIP | pymupdf.TEXT_CID_FOR_UNKNOWN_UNICODE
-CITATION = re.compile(r"\[\d+(?:\s*[,-]\s*\d+)*\]")  # [53], [52-58], [32, 52-58] (dashes normalised)
+CITATION = re.compile(r"\[\s*\d+(?:\s*[,-]\s*\d+)*\s*\]")  # [53], [52-58], [32, 52-58], [ 3 , 12 , 13 ] (dashes normalised)
 END_SLACK = 3  # quote characters at either end that may differ from the PDF (a misread first or last letter)
 
 

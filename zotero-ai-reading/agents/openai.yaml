@@ -1,4 +1,4 @@
 interface:
   display_name: "Zotero AI Reading"
-  short_description: "AI-annotate papers in Zotero and make or extend BibNotes notes"
-  default_prompt: "Use $zotero-ai-reading to read the unread papers in a Paper Library folder, annotate them in Zotero and make their Obsidian notes."
+  short_description: "AI-read papers for a question: Zotero annotations, tags and BibNotes notes"
+  default_prompt: "Use $zotero-ai-reading to read the papers in a Paper Library folder for my question, annotate and tag them in Zotero and make or extend their Obsidian notes."
