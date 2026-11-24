@@ -4,7 +4,7 @@ Read the whole converted Markdown (MinerU or Marker), not just the abstract. To 
 
 ## Read with the question, record more than the question
 
-Every run has a question: the research task in `batch.json` (`task`), e.g. "permeability measurements of hydrogels". The topic folders of the paper's note (`note_path`) name the project the paper was collected for.
+Every run has a question: the research task in `batch.json` (`task`), e.g. "permeability measurements of hydrogels". The topic folders of the paper's notes (`notes` in `batch.json`; several when it is filed under several topics) name the projects the paper was collected for.
 
 - **Focus on the question.** Annotate in detail everything in the paper that the question needs: values with their conditions, methods, figures, tables, models.
 - **Do not stop at the question.** Also annotate the paper's other important content, so that a later question does not need another full reading: a paper read for permeability that also measures diffusivity gets its diffusivity results annotated as well, and a tag says the paper has them.
@@ -74,7 +74,7 @@ Chinese. Each is `{"text": "...", "details": ["...", ...]}` or just a string (te
 
 ## Adding to a paper read before (`--update`)
 
-The paper has annotations (AI-tagged, the user's, or stored in the PDF file) and usually a note, an AI draft or the user's own. Before writing anything, read the note (`note_path` in `batch.json`; its `ai_updates` lists the questions it was read for) and `<run>/<citekey>/existing-annotations.json` (every annotation on the PDF: who made it, colour, page, text, comment). Then read the whole Markdown again with the new question.
+The paper has annotations (AI-tagged, the user's, or stored in the PDF file) and usually a note, an AI draft or the user's own. Before writing anything, read its notes (`notes` in `batch.json`, each one when there are several: `note` adds the same reading to all; `ai_updates` lists the questions a note was read for) and `<run>/<citekey>/existing-annotations.json` (every annotation on the PDF: who made it, colour, page, text, comment). Then read the whole Markdown again with the new question.
 
 - **Add what the note lacks:** what the new question needs, and the paper's own content the note does not have yet (a field of the user's note that is empty, a section no annotation covers).
 - **Annotations** are the main place for new content: highlight the original sentences and frame the figures, tables and equations. `place` drops a new highlight or frame of which half or more lies under existing ones of the same kind (or under an earlier item of the same reading): a new point about an annotated sentence or figure goes into a field addition instead.

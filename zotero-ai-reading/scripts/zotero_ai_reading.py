@@ -79,6 +79,25 @@ def note_state(note):
     return "ai-draft" if re.search(r'^note_status: "?AI draft', head, re.M) else "user"
 
 
+def combined_state(notes):
+    """The paper's note state over all its notes: 'user' if any is the user's, 'ai-draft' if all are AI drafts, else 'none'."""
+    states = {n["state"] for n in notes} - {"none"}
+    return "user" if "user" in states else ("ai-draft" if states else "none")
+
+
+def recorded_notes(row):
+    """The notes prepare saw for the paper as [(path, state)]: all its notes, or the new note's path while it has none
+    (batch.json of 0.5.0 and earlier: note_path alone)."""
+    if row.get("notes"):
+        return [(pathlib.Path(n["path"]), n["state"]) for n in row["notes"]]
+    return [(pathlib.Path(row["note_path"]), row.get("note_state", "none"))] if row.get("note_path") else []
+
+
+def note_suffix(i):
+    """Run-folder file names per note of a paper: note-before.md for its first note, note-before-2.md for the second..."""
+    return "" if i == 0 else f"-{i + 1}"
+
+
 def note_update_problem(text):
     """Why a note cannot be added to safely, or None. BibNotes's update keeps the note from 'Affiliation:' on and
     regenerates what is above it; without that line it would copy the whole old note under a new head."""
@@ -150,10 +169,6 @@ def cmd_prepare(a):
         die('--task: one short line (at most 80 characters) without * < > [ ] " (it is shown in the note)')
     lib = Library(a.library_root, a.vault)
     run = pathlib.Path(a.run_dir)
-    notes_by_name = {}  # every note of the vault by file name: a paper's note may sit in another folder than its PDF
-    for p in lib.vault.rglob("*.md"):
-        if p.relative_to(lib.vault).parts[0] not in (".obsidian", ".trash"):
-            notes_by_name.setdefault(p.name.lower(), []).append(p)
     if not zotero_available():
         die("Zotero is not running or its local API is off (Zotero settings > Advanced > allow other applications).")
     probs = lib.bibnotes_problems()
@@ -196,13 +211,18 @@ def cmd_prepare(a):
             row.update(status="skip", reason=f"Zotero's PDF attachment links {live_path}, " + ("a file that does not exist (broken link)" if gone
                        else "not the file the Better BibTeX export names") + f" ({pdf_rel}): repair the link in Zotero first"); continue
         n_ai = sum(1 for x in anns if AI_TAG in [t["tag"] for t in x.get("tags", [])])
-        note = lib.note_path(pdf_rel, ck)
-        state = note_state(note)
-        row.update(note_path=str(note), note_state=state)
-        elsewhere = [p for p in notes_by_name.get(note.name.lower(), []) if p.resolve() != note.resolve()]
-        if elsewhere:
-            row.update(status="skip", reason=f"a note of this paper is elsewhere in the vault ({'; '.join(str(p.relative_to(lib.vault)) for p in elsewhere)}): "
-                                             "move it beside the PDF first (paper-library-maintenance)"); continue
+        # the paper's notes wherever they are filed (one paper may serve several topics or projects), by its Zotero item;
+        # a new note goes where BibNotes would put it, mirroring the PDF's folder
+        mirrored = lib.note_path(pdf_rel, ck)
+        found, notices = lib.notes_of(e["itemKey"], ck, first=mirrored)
+        if notices:
+            row["note_notices"] = notices
+        if not found and mirrored.exists():
+            row.update(status="skip", reason=f"{mirrored.relative_to(lib.vault)} is another Zotero item's note ({'; '.join(notices)}): "
+                                             "rename or move it first"); continue
+        notes = [{"path": str(p), "state": note_state(p)} for p in found]
+        state = combined_state(notes)
+        row.update(note_path=str(found[0] if found else mirrored), note_state=state, notes=notes)
         mode, why = admission(n_ai, len(anns) - n_ai, state, a.update)
         if not mode:
             row.update(status="skip", reason=why); continue
@@ -211,14 +231,21 @@ def cmd_prepare(a):
         if md is None or md_status.startswith("stale"):
             row.update(status="skip", reason=f"Markdown {md_status}: convert with mineru-api-batch-convert (or marker-api-batch-convert "
                                              "when MinerU is unavailable) first"); continue
-        if mode == "update" and state != "none":
-            try:
-                prob = note_update_problem(note.read_text(encoding="utf-8"))
-            except UnicodeDecodeError:
-                prob = "the note is not UTF-8 text"
-            if prob:
-                row.update(status="skip", reason=f"the note cannot be added to safely: {prob}"); continue
-            other = collections.Counter(re.findall(r"items/([A-Z0-9]{8})\?page=\d+&annotation=", note.read_text(encoding="utf-8")))
+        if mode == "update" and notes:
+            good, left = [], []  # every note of the paper is added to; one that cannot be safely is left as it is
+            for n in notes:
+                try:
+                    prob = note_update_problem(pathlib.Path(n["path"]).read_text(encoding="utf-8"))
+                except UnicodeDecodeError:
+                    prob = "the note is not UTF-8 text"
+                (left.append(f"{pathlib.Path(n['path']).relative_to(lib.vault)}: {prob}") if prob else good.append(n))
+            if not good:
+                row.update(status="skip", reason=f"no note of this paper can be added to safely: {'; '.join(left)}"); continue
+            if left:
+                row["notes_left"] = left
+            row.update(notes=good, note_path=good[0]["path"])
+            other = collections.Counter(k for n in good for k in
+                                        re.findall(r"items/([A-Z0-9]{8})\?page=\d+&annotation=", pathlib.Path(n["path"]).read_text(encoding="utf-8")))
             other.pop(row["pdf_key"], None)
             if other:  # annotations of an attachment the item no longer has (or another one): new lines go after them
                 row["note_other_attachments"] = dict(other)
@@ -257,8 +284,15 @@ def cmd_prepare(a):
                  if r["status"] == "ready" else r.get("reason", ""))
         if r["status"] == "ready" and r.get("mode") == "update":
             e = r["existing"]
+            ns = r.get("notes") or []
+            who = {"ai-draft": "AI draft", "user": "the user's"}
+            listed = "; ".join(f"{pathlib.Path(n['path']).relative_to(lib.vault)} ({who[n['state']]})" for n in ns)
             extra += (f" | update: {e['ai']} AI and {e['user']} user annotations, note: "
-                      + {"none": "none yet (a new note is written)", "ai-draft": "AI draft", "user": "the user's"}[r["note_state"]])
+                      + (listed + (f" (each of the {len(ns)} is added to)" if len(ns) > 1 else "") if ns else "none yet (a new note is written)"))
+        for n in r.get("notes_left", []):
+            extra += f" | left as it is: {n}"
+        for n in r.get("note_notices", []):
+            extra += f" | note: {n}"
         if r["status"] == "ready" and r["existing"].get("in_file"):
             extra += f" | {r['existing']['in_file']} annotations stored in the PDF file (in existing-annotations.json)"
         if r.get("note_other_attachments"):
@@ -720,7 +754,7 @@ def cmd_write(a, writer=None):
         die("nothing placed yet (run place first)")
     if len(rows) > MAX_BATCH:
         die(f"{len(rows)} papers; write at most {MAX_BATCH} per run")
-    plan, undo = [], []
+    plan, undo, scan = [], [], []
     for row in rows:  # every check before any change
         ck = row["citekey"]
         payload = [{k: v for k, v in p.items() if not k.startswith("_")} for p in load(run / ck / "payload.json")]
@@ -729,9 +763,18 @@ def cmd_write(a, writer=None):
             die(f"{ck}: the Zotero title differs from the one prepare saw ({item['title'][:60]!r}): run prepare again")
         if att.get("parentItem") != row["item_key"] or att.get("contentType") != "application/pdf":
             die(f"{ck}: {row['pdf_key']} is no longer this item's PDF attachment")
-        if row.get("note_path") and note_state(pathlib.Path(row["note_path"])) != row.get("note_state", "none"):
-            die(f"{ck}: the note {row['note_path']} is now {note_state(pathlib.Path(row['note_path']))!r}, prepare saw "
-                f"{row.get('note_state', 'none')!r}: run prepare again with the same arguments, then place")
+        for path, seen in recorded_notes(row):
+            if note_state(path) != seen:
+                die(f"{ck}: the note {path} is now {note_state(path)!r}, prepare saw {seen!r}: run prepare again with the "
+                    "same arguments, then place")
+        if "notes" in row and not row["notes"]:  # no note when prepared: none may have been filed anywhere since
+            if not scan:  # the vault is read once per write
+                scan.append(library_of(batch))
+                scan[0].note_index(reload=True)
+            found, _ = scan[0].notes_of(row["item_key"], ck)
+            if found:
+                die(f"{ck}: a note of this paper appeared at {found[0]} after prepare: run prepare again with the same "
+                    "arguments, then place")
         live = [x["data"] for x in api_all(f"items/{row['pdf_key']}/children?itemType=annotation") if not x["data"].get("deleted")]
         n_ai = sum(1 for x in live if AI_TAG in [t["tag"] for t in x.get("tags", [])])
         mode, why = admission(n_ai, len(live) - n_ai, row.get("note_state", "none"), row.get("mode") == "update")
@@ -859,9 +902,11 @@ def cmd_undo(a, writer=None):
         row = next((r for r in batch["items"] if r["citekey"] == it["citekey"]), {})
         if row.get("note_written") and pathlib.Path(row["note_written"]).exists():
             print(f"   the note {row['note_written']} and its pictures stay in the vault: move them out (do not delete) if they should go")
-        if row.get("note_updated"):
-            print(f"   this run added to the note {row['note_updated']}; its text before is in "
-                  f"{run / it['citekey'] / 'note-before.md'}: restore it by hand if wanted (the note may have been edited since)")
+        order = [n["path"] for n in row.get("notes") or []]
+        for path in row.get("notes_updated") or ([row["note_updated"]] if row.get("note_updated") else []):
+            before = f"note-before{note_suffix(order.index(path) if path in order else 0)}.md"
+            print(f"   this run added to the note {path}; its text before is in "
+                  f"{run / it['citekey'] / before}: restore it by hand if wanted (the note may have been edited since)")
 
 
 # ---------------------------------------------------------------- verify
@@ -1420,21 +1465,25 @@ def build_update(lib, run, row, reading, agent, task, td, before):
     return text, problems, notes, pictures, n_fields
 
 
-def update_note(lib, run, row, reading, agent, task, img_dir):
-    """Add this run's annotations and field additions to the paper's existing note (an AI draft or the user's own) and
-    keep the note's previous text in the run folder. Report lines."""
+def update_note(lib, run, row, reading, agent, task, img_dir, note_path=None, state=None, i=0):
+    """Add this run's annotations and field additions to one existing note of the paper (an AI draft or the user's own;
+    the i-th of its notes) and keep the note's previous text in the run folder. Report lines."""
     ck = row["citekey"]
-    note_path = pathlib.Path(row["note_path"])
+    note_path = pathlib.Path(note_path or row["note_path"])
+    state = state or row.get("note_state")
+    sfx = note_suffix(i)
+    done = row.setdefault("notes_updated", [])
     raw = note_path.read_bytes()
     try:
         before = raw.decode("utf-8")
     except UnicodeDecodeError:
-        return [f"- {ck}: NOT updated (the note is not UTF-8 text)"]
+        return [f"- {ck}: NOT updated (the note is not UTF-8 text): {note_path.relative_to(lib.vault)}"]
     prob = note_update_problem(before)
     if prob:
-        return [f"- {ck}: NOT updated ({prob})"]
-    if (run / ck / "note-updated.json").exists():
-        row["note_updated"] = str(note_path)
+        return [f"- {ck}: NOT updated ({prob}): {note_path.relative_to(lib.vault)}"]
+    if (run / ck / f"note-updated{sfx}.json").exists():
+        if str(note_path) not in done:
+            done.append(str(note_path))
         return [f"- {ck}: note added to by an earlier `note` run of this run directory: {note_path.relative_to(lib.vault)}"]
     with tempfile.TemporaryDirectory() as td:
         try:
@@ -1442,25 +1491,26 @@ def update_note(lib, run, row, reading, agent, task, img_dir):
         except (RuntimeError, ValueError, yaml.YAMLError, OSError) as e:
             return [f"- {ck}: NOT updated ({type(e).__name__}: {e})"]
         if problems:
-            (run / ck / "note-rejected.md").write_text(text, encoding="utf-8", newline="\n")
-            return [f"- {ck}: NOT updated ({'; '.join(problems)}); the result it would have written is in {run / ck / 'note-rejected.md'}"]
+            (run / ck / f"note-rejected{sfx}.md").write_text(text, encoding="utf-8", newline="\n")
+            return [f"- {ck}: NOT updated ({'; '.join(problems)}): {note_path.relative_to(lib.vault)}; the result it would have "
+                    f"written is in {run / ck / f'note-rejected{sfx}.md'}"]
         if note_path.read_bytes() != raw:  # edited in Obsidian meanwhile: add to the new text instead
             return [f"- {ck}: NOT updated (the note changed while this run was adding to it): run `note` again"]
-        if not (run / ck / "note-before.md").exists():  # the note as it was before this run, kept once
-            (run / ck / "note-before.md").write_bytes(raw)
+        if not (run / ck / f"note-before{sfx}.md").exists():  # the note as it was before this run, kept once
+            (run / ck / f"note-before{sfx}.md").write_bytes(raw)
         for i in pictures:
             dst = lib.vault / img_dir / i
             if not dst.exists():
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(pathlib.Path(td) / "fresh" / img_dir / i, dst)
-        save(run / ck / "note-updated.json", {"note": str(note_path), "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()})
+        save(run / ck / f"note-updated{sfx}.json", {"note": str(note_path), "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()})
         tmp = note_path.with_name(note_path.name + ".zar-tmp")  # whole or not at all: a stopped run never leaves half a note
         tmp.write_text(text, encoding="utf-8", newline="\n")
         tmp.replace(note_path)
-    row["note_updated"] = str(note_path)
-    who = "an AI draft" if row.get("note_state") == "ai-draft" else "the user's note"
+    done.append(str(note_path))
+    who = "an AI draft" if state == "ai-draft" else "the user's note"
     return [f"- {ck}: note added to ({who}; {placed_summary(run, ck)}, {len(pictures)} pictures, {n_fields} field addition(s)): "
-            f"{note_path.relative_to(lib.vault)}; the text before is in {run / ck / 'note-before.md'}"] + [f"  - note: {n}" for n in notes]
+            f"{note_path.relative_to(lib.vault)}; the text before is in {run / ck / f'note-before{sfx}.md'}"] + [f"  - note: {n}" for n in notes]
 
 
 def current_pdf(lib, row):
@@ -1475,6 +1525,15 @@ def current_pdf(lib, row):
         row["pdf"] = str(lib.root / rel)
         return f"the PDF was renamed since prepare; used {rel}"
     return f"the PDF {row['pdf']} is gone and Zotero's attachment {row['pdf_key']} links {live or 'no file'}"
+
+
+def appeared(lib, row, note_path, reload=False):
+    """A note of the paper filed since prepare, anywhere in the vault (by its Zotero item, see Library.notes_of), or a
+    file at the new note's path: never write a second note or overwrite one. The path found, or None."""
+    if note_path.exists():
+        return note_path
+    found, _ = lib.notes_of(row["item_key"], row["citekey"], reload=reload)
+    return found[0] if found else None
 
 
 def placed_summary(run, ck):
@@ -1503,16 +1562,21 @@ def cmd_note(a):
             lines.append(f"- {ck}: not verified in Zotero yet"); continue
         note_path = pathlib.Path(row["note_path"])
         updating = row.get("mode") == "update" and row.get("note_state", "none") != "none"
+        targets = [(p, s) for p, s in recorded_notes(row) if s != "none"]  # the paper's notes, wherever they are filed
         if updating:
-            if row.get("note_updated"):
-                lines.append(f"- {ck}: note added to by an earlier `note` run: {note_path.relative_to(lib.vault)}"); continue
-            if not note_path.exists():
-                lines.append(f"- {ck}: STOP, the note to add to is gone from {note_path}"); continue
+            done = row.get("notes_updated") or ([row["note_updated"]] if row.get("note_updated") else [])
+            if all(str(p) in done for p, _ in targets):
+                lines.append(f"- {ck}: note(s) added to by an earlier `note` run: "
+                             + "; ".join(str(p.relative_to(lib.vault)) for p, _ in targets)); continue
+            gone = [p for p, _ in targets if not p.exists()]
+            if gone:
+                lines.append(f"- {ck}: STOP, a note to add to is gone from {gone[0]}: run prepare again"); continue
         else:
             if row.get("note_written") and note_path.exists():
                 lines.append(f"- {ck}: note written by an earlier `note` run: {note_path.relative_to(lib.vault)}"); continue
-            if note_path.exists():
-                lines.append(f"- {ck}: STOP, a note appeared at {note_path}"); continue
+            other = appeared(lib, row, note_path, reload=True)
+            if other:
+                lines.append(f"- {ck}: STOP, a note of this paper appeared at {other}"); continue
         moved = current_pdf(lib, row)
         if moved and not pathlib.Path(row["pdf"]).exists():
             lines.append(f"- {ck}: NOT written ({moved})"); continue
@@ -1524,9 +1588,11 @@ def cmd_note(a):
         late = [t for t in wait if not lib.wait_for_tag(ck, t, timeout=a.wait)]
         if late:
             lines.append(f"- {ck}: Better BibTeX export does not show the tags {late} yet; rerun `note` in a minute"); continue
-        if updating:
-            lines += update_note(lib, run, row, reading, a.agent, batch.get("task") or run.name, img_dir)
-            save(run / "batch.json", batch)  # progress after each paper: a later failure must not make a rerun add twice
+        if updating:  # every note of the paper gets this run's additions (one paper may serve several topics)
+            for i, (path, state) in enumerate(recorded_notes(row)):
+                if str(path) not in (row.get("notes_updated") or []):
+                    lines += update_note(lib, run, row, reading, a.agent, batch.get("task") or run.name, img_dir, path, state, i)
+                    save(run / "batch.json", batch)  # progress after each note: a later failure must not make a rerun add twice
             continue
         storage = run / ck / "storage"
         try:
@@ -1563,8 +1629,9 @@ def cmd_note(a):
                 if not dst.exists():
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(pathlib.Path(td) / "render" / img_dir / i, dst)
-            if note_path.exists():  # a note appeared while this one was built: never overwrite it
-                lines.append(f"- {ck}: STOP, a note appeared at {note_path}"); continue
+            other = appeared(lib, row, note_path)  # a note appeared while this one was built: never a second note
+            if other:
+                lines.append(f"- {ck}: STOP, a note of this paper appeared at {other}"); continue
             note_path.parent.mkdir(parents=True, exist_ok=True)
             note_path.write_text(text, encoding="utf-8", newline="\n")
         row["note_written"] = str(note_path)
