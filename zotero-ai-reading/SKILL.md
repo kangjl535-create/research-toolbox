@@ -1,11 +1,11 @@
 ---
 name: zotero-ai-reading
-description: Read papers from a Zotero-managed Paper Library for a research question and annotate them in Zotero the way the user does (colour-coded highlights and figure/table/equation frames tagged AI, comments starting "AI：", searchable "#中文" content tags), then write a BibNotes-compatible Obsidian note in the mirrored Zoteronotes folder. With --update, add a new question's annotations, note content and tags to papers read before or with an existing note (an AI draft or the user's own), without changing what is there. Use when asked to AI-read, annotate, make or extend notes for papers or a folder; not for PDF conversion.
+description: Read papers from a Zotero-managed Paper Library for a research question and annotate them in Zotero the way the user does (colour-coded highlights and figure/table/equation frames tagged AI, comments starting "AI：", searchable "#中文" content tags), then write a BibNotes-compatible Obsidian note in the mirrored Zoteronotes folder. With --update, add a new question's annotations, note content and tags to papers read before or with existing notes (AI drafts or the user's own, in any vault folder), without changing what is there. Use when asked to AI-read, annotate, make or extend notes for papers or a folder; not for PDF conversion.
 ---
 
 # Zotero AI Reading
 
-Release: **0.5.0**. The agent reads each paper's converted Markdown with a question; the scripts place its highlights and frames on the PDF, write them and the paper's content tags to Zotero through its local API, and write the Obsidian note that BibNotes's "Update Current Note" would make, or add to the paper's existing note. The user goes on with their usual flow (edit in Zotero → "Add Note from Annotations" → Ctrl+P update); the note stays merge-safe.
+Release: **0.5.1**. The agent reads each paper's converted Markdown with a question; the scripts place its highlights and frames on the PDF, write them and the paper's content tags to Zotero through its local API, and write the Obsidian note that BibNotes's "Update Current Note" would make, or add to the paper's existing note. The user goes on with their usual flow (edit in Zotero → "Add Note from Annotations" → Ctrl+P update); the note stays merge-safe.
 
 ## Requirements
 
@@ -17,7 +17,8 @@ Windows; Zotero 10 running with the local API enabled (Settings → Advanced →
 - **Write access** is the user's: the first `write` shows Zotero's "Local API Authorization" dialog and waits; the user clicks **Always Allow**. The key is kept in `%LOCALAPPDATA%\AI-Config\zotero-ai-reading\local-api-key.json` on that computer (never printed, never in OneDrive or the skill); Zotero → Settings → Advanced → "Clear Write Authorizations" revokes it.
 - **Every run reads for a question** (`--task`): the user's question, or the research project's topic when the user named none; ask when it is unclear.
 - **Papers read before** (annotated, AI or not, or with a note) are added to with `--update`, the user's standing request of 2026-11-17: a new question's points go into the papers read earlier. Without it they are skipped.
-- **An existing note is only added to:** `note` inserts lines and extends the `tags:` list; every other line stays as it is, front matter included. The old text is kept as `note-before.md` in the run folder.
+- **A paper's notes are found by its Zotero item**, in any vault folder: the note's "zotero entry" link decides, its file name `@citekey.md` only when that link is missing or names an item Zotero no longer has. A paper filed under several topics may have several notes; `--update` adds to each. A new note goes in the folder mirroring the PDF's.
+- **An existing note is only added to:** `note` inserts lines and extends the `tags:` list; every other line stays as it is, front matter included. The old text is kept as `note-before.md` in the run folder (`note-before-2.md` for a second note).
 - Batches of up to **10 papers** per run directory. Missing or stale Markdown: offer `mineru-api-batch-convert`, or `marker-api-batch-convert` when MinerU is unavailable; do not read the PDF instead. "Untracked" Markdown (no converter marker) can be read when it looks complete.
 - PDFs, converted Markdown and plugin settings are read, never edited.
 

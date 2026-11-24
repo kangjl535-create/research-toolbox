@@ -10,6 +10,8 @@ KEY_CHARS = "23456789ABCDEFGHIJKLMNPQRSTUVWXYZ"  # Zotero object keys
 COLORS = {"green": "#5fb236", "orange": "#f19837", "yellow": "#ffd400", "red": "#ff6666", "blue": "#2ea8e5"}
 FIELDS = ["Summary", "Objective", "Method", "Conclusion", "Gap", "Inspiration"]
 S2C_FIRST_KEYS = ["Title", "Type", "Author", "Year", "Journal", "DOI", "tags", "folder", "Affiliation"]
+# the note's own Zotero item, from BibNotes's "- **zotero entry**: [Zotero](zotero://select/library/items/KEY)" line
+NOTE_ENTRY = re.compile(r"^- \*\*zotero entry\*\*:[^\n]*?zotero://select/(?:library|groups/\d+)/items/([A-Z0-9]{8})", re.M | re.I)
 
 
 def api(path, timeout=20):
@@ -220,8 +222,54 @@ class Library:
         return pathlib.Path(*parts[parts.index(self.root.name) + 1:])
 
     def note_path(self, pdf_rel, citekey):
+        """Where BibNotes would put a new note: the vault folder mirroring the PDF's folder."""
         title = self.settings.get("exportTitle", "@{{citeKey}}").replace("{{citeKey}}", citekey).replace("{{citekey}}", citekey)
         return self.vault / pdf_rel.parent / f"{title}.md"
+
+    def note_index(self, reload=False):
+        """Every note of the vault: (path, the Zotero item key of its 'zotero entry' line or None, the citekey its file
+        name gives by BibNotes's export title or None). Other papers' links in the note's text do not count."""
+        if getattr(self, "_notes", None) is None or reload:
+            pre, _, post = self.settings.get("exportTitle", "@{{citeKey}}").replace("{{citekey}}", "{{citeKey}}").partition("{{citeKey}}")
+            self._notes = []
+            for p in self.vault.rglob("*.md"):
+                if p.relative_to(self.vault).parts[0] in (".obsidian", ".trash"):
+                    continue
+                try:
+                    head = p.read_text(encoding="utf-8", errors="replace")[:8000]
+                except OSError:
+                    continue
+                m = NOTE_ENTRY.search(head)
+                s = p.stem
+                name = s[len(pre):len(s) - len(post)] if s.startswith(pre) and s.endswith(post) and len(s) > len(pre) + len(post) else None
+                self._notes.append((p, m.group(1) if m else None, name))
+        return self._notes
+
+    def notes_of(self, item_key, citekey, first=None, reload=False):
+        """The paper's notes anywhere in the vault, `first` (the mirrored path) leading, and notices. Zotero's record
+        decides: a note whose 'zotero entry' line names this item is its note, whatever its file name; the file name
+        @citekey.md counts only for a note without that line or whose line names an item the export no longer has (a
+        merged duplicate). A file named for this citekey whose line names another item is that item's note (a notice)."""
+        known = {e.get("itemKey") for e in self.bbt()["items"]}
+        mine, notices = [], []
+        for p, key, name in self.note_index(reload):
+            by_name = name is not None and name.lower() == citekey.lower()
+            if key == item_key:
+                mine.append(p)
+                if name is not None and not by_name:
+                    notices.append(f"{p.relative_to(self.vault)} links this item but is named for {name!r}")
+            elif by_name and (key is None or key not in known):
+                mine.append(p)
+                if key:
+                    notices.append(f"{p.relative_to(self.vault)}: its zotero entry link names {key}, an item no longer in "
+                                   "the export (merged or deleted?); taken as this paper's note by its file name")
+            elif by_name:
+                other = next((e.get("citationKey") for e in self.bbt()["items"] if e.get("itemKey") == key), key)
+                notices.append(f"{p.relative_to(self.vault)} is named for this paper but its zotero entry link names "
+                               f"{other}: left out")
+        fr = first.resolve() if first else None
+        mine.sort(key=lambda p: (p.resolve() != fr, str(p).lower()))
+        return mine, notices
 
     # --- Better BibTeX export ---
     def bbt(self, reload=False):
